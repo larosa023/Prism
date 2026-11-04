@@ -1,7 +1,7 @@
 // Built-in ad blocking using uBlock Origin's filter lists.
 // Runs the lists through Ghostery's engine, which understands uBO syntax
 // (network rules, cosmetic rules and +js() scriptlets).
-const { app, ipcMain } = require('electron');
+const { app, ipcMain, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { ElectronBlocker, fetchResources } = require('@ghostery/adblocker-electron');
@@ -19,6 +19,10 @@ const LISTS = {
   'peter-lowe':      { name: "Peter Lowe's list", url: 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext' }
 };
 
+// Use Chromium's network stack (net.fetch). Node's built-in fetch can crash
+// the app with "assert(!this.paused)" while downloading big filter lists.
+const download = (url, opts) => net.fetch(url, opts);
+
 const MAX_AGE = 24 * 60 * 60 * 1000; // refresh lists once a day
 let blocker = null;
 let sessions = [];
@@ -32,7 +36,7 @@ async function cachedText(key, url, force) {
   try { stat = fs.statSync(file); } catch {}
   if (stat && !force && Date.now() - stat.mtimeMs < MAX_AGE) return fs.readFileSync(file, 'utf8');
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'Prism/1.0' } });
+    const res = await download(url, { headers: { 'User-Agent': 'Prism/1.0' } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     fs.mkdirSync(cacheDir(), { recursive: true });
@@ -62,7 +66,8 @@ function allowlistRules() {
 async function build(force = false) {
   const s = settings.get();
   const enabled = Object.keys(LISTS).filter((k) => s.filterLists[k]);
-  const texts = await Promise.all(enabled.map((k) => cachedText(k, LISTS[k].url, force)));
+  const texts = [];
+  for (const k of enabled) texts.push(await cachedText(k, LISTS[k].url, force));
   const all = [...texts, s.customFilters || '', allowlistRules()].join('\n');
 
   const next = ElectronBlocker.parse(all, { loadCosmeticFilters: true, loadNetworkFilters: true, enableHtmlFiltering: true });
@@ -76,7 +81,7 @@ async function build(force = false) {
     } catch {}
     if (!resources) {
       try {
-        resources = await fetchResources(fetch);
+        resources = await fetchResources(download);
         fs.mkdirSync(cacheDir(), { recursive: true });
         fs.writeFileSync(resFile, resources);
       } catch { try { resources = fs.readFileSync(resFile, 'utf8'); } catch {} }

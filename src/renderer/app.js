@@ -190,7 +190,8 @@
   }
 
   function layout() {
-    const vis = visibleStreams();
+    // Only lay out streams whose player tile exists (a resize can fire mid-update).
+    const vis = visibleStreams().filter((s) => tiles.has(keyOf(s)));
     const n = vis.length;
     const W = stage.clientWidth - 20;
     const H = stage.clientHeight - 10;

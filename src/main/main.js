@@ -35,6 +35,11 @@ app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess
 
 let win = null;
 
+// Never show a crash dialog for a background hiccup (a failed download,
+// a dropped connection); log it and keep the app running.
+process.on('uncaughtException', (e) => console.error('[prism] uncaught', e));
+process.on('unhandledRejection', (e) => console.error('[prism] unhandled', e));
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
