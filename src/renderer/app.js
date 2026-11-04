@@ -390,7 +390,7 @@
     if (!s) return;
     streams = streams.filter((x) => x !== s);
     persistStreams();
-    if (s.platform === 'twitch') { chat.part(s.id); dropChatPane('twitch:' + s.id); }
+    if (s.platform === 'twitch') { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); }
     dropChatPane(key);
     if (chatKey === key) chatKey = null;
     renderStage();
@@ -517,10 +517,13 @@
   const chat = new PrismChat.TwitchChat({
     onState: ({ signedIn }) => { if (signedIn !== undefined) updateChatInput(); },
     onAuthFailed: () => { selfLogin = null; updateChatInput(); },
-    onMessage: (ch, m) => queue('twitch:' + ch, () => PrismChat.renderMessage(m, msgOpts(ch))),
+    onMessage: (ch, m) => { logUserMessage(ch, m); queue('twitch:' + ch, () => PrismChat.renderMessage(m, msgOpts(ch))); },
     onNotice: (ch, m) => queue('twitch:' + ch, () => {
       const el = h('div', { class: 'msg notice' }, h('div', { text: m.tags['system-msg'] || '' }));
-      if (m.text) el.append(PrismChat.renderMessage({ tags: m.tags, nick: m.tags.login, text: m.text }, msgOpts(ch)));
+      if (m.text) {
+        logUserMessage(ch, { tags: m.tags, nick: m.tags.login, text: m.text });
+        el.append(PrismChat.renderMessage({ tags: m.tags, nick: m.tags.login, text: m.text }, msgOpts(ch)));
+      }
       return el;
     }),
     onSystem: (ch, text) => ch && queue('twitch:' + ch, () => h('div', { class: 'msg system', text })),
@@ -530,12 +533,14 @@
       if (S.thirdPartyEmotes) PrismChat.roomEmotes(roomId).then((m) => (p.emotes = m));
     },
     onClear: (ch, { user }) => {
+      if (user) markUserLog(ch, user, () => true);
       const p = panes.get('twitch:' + ch);
       if (!p) return;
       if (user) $$(`.msg[data-user="${CSS.escape(user)}"]`, p.el).forEach((m) => m.classList.add('deleted'));
       else queue('twitch:' + ch, () => h('div', { class: 'msg system', text: 'Chat was cleared by a moderator.' }));
     },
     onDelete: (ch, id) => {
+      markMessageLog(ch, id);
       const p = panes.get('twitch:' + ch);
       if (p && id) $(`.msg[data-id="${CSS.escape(id)}"]`, p.el)?.classList.add('deleted');
     }
@@ -553,7 +558,7 @@
     const key = 'twitch:' + ch;
     let p = panes.get(key);
     if (p) return p;
-    const el = h('div', { class: 'chat-pane' }, h('div', { class: 'chat-empty', text: `Joined #${ch}` }));
+    const el = h('div', { class: 'chat-pane', 'data-ch': ch }, h('div', { class: 'chat-empty', text: `Joined #${ch}` }));
     p = { el, kind: 'twitch', stick: true, queue: [], emotes: null };
     el.addEventListener('scroll', () => {
       p.stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
@@ -595,9 +600,132 @@
   });
 
   chatBody.addEventListener('click', (e) => {
+    const name = e.target.closest('.msg .name');
+    if (name) {
+      const msg = name.closest('.msg');
+      const pane = name.closest('.chat-pane');
+      if (msg?.dataset.user && pane?.dataset.ch) { e.stopPropagation(); openUserCard(pane.dataset.ch, msg.dataset.user); }
+      return;
+    }
     const a = e.target.closest('a[data-url]');
     if (a) { e.preventDefault(); prism.openExternal(a.dataset.url); }
   });
+
+  // ---- Per-user message history (click a name to see everything they said)
+  // Kept separately from the visible chat so it survives the chat's line cap.
+  const USER_LOG_MAX = 100;       // messages kept per person
+  const USER_LOG_USERS = 1500;    // people kept per channel (least recent dropped)
+  const userLogs = new Map();     // channel -> Map(login -> { name, color, badges, msgs: [] })
+  let userCard = null;            // { ch, login }
+
+  function logUserMessage(ch, m) {
+    const login = (m.tags.login || m.nick || '').toLowerCase();
+    if (!login) return;
+    let byUser = userLogs.get(ch);
+    if (!byUser) { byUser = new Map(); userLogs.set(ch, byUser); }
+    let u = byUser.get(login);
+    if (u) byUser.delete(login); // re-insert: most recent last
+    else u = { msgs: [] };
+    u.name = m.tags['display-name'] || m.nick || login;
+    u.color = m.tags.color;
+    u.badges = m.tags.badges;
+    u.msgs.push({ at: Date.now(), m, deleted: false });
+    if (u.msgs.length > USER_LOG_MAX) u.msgs.shift();
+    byUser.set(login, u);
+    if (byUser.size > USER_LOG_USERS) byUser.delete(byUser.keys().next().value);
+    if (userCard && userCard.ch === ch && userCard.login === login) renderUserCard(true);
+  }
+  function markUserLog(ch, login, test) {
+    const u = userLogs.get(ch)?.get(String(login).toLowerCase());
+    if (!u) return;
+    for (const x of u.msgs) if (test(x)) x.deleted = true;
+    if (userCard && userCard.ch === ch && userCard.login === String(login).toLowerCase()) renderUserCard(false);
+  }
+  function markMessageLog(ch, id) {
+    if (!id) return;
+    for (const [login, u] of userLogs.get(ch) || []) {
+      if (u.msgs.some((x) => x.m.tags.id === id)) { markUserLog(ch, login, (x) => x.m.tags.id === id); return; }
+    }
+  }
+
+  const cardEl = h('div', { class: 'user-card', hidden: true });
+  $('#chat').append(cardEl);
+
+  function openUserCard(ch, login) {
+    userCard = { ch, login: login.toLowerCase() };
+    renderUserCard(false, true);
+  }
+  function closeUserCard() { userCard = null; cardEl.hidden = true; cardEl.textContent = ''; }
+
+  function renderUserCard(appendOnly, scrollToEnd) {
+    if (!userCard) return;
+    const { ch, login } = userCard;
+    const u = userLogs.get(ch)?.get(login);
+    const list = cardEl.querySelector('.uc-list');
+    const nearBottom = list ? list.scrollTop + list.clientHeight >= list.scrollHeight - 30 : true;
+    const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const row = (x) => {
+      const line = PrismChat.renderMessage(x.m, msgOpts(ch));
+      line.querySelector('.name')?.remove();
+      line.querySelectorAll('.badge').forEach((b) => b.remove());
+      if (line.firstChild?.nodeType === 3) line.firstChild.remove(); // the ": " after the name
+      line.prepend(h('span', { class: 'uc-time', text: fmtTime(x.at) }));
+      if (x.deleted) line.classList.add('deleted');
+      return line;
+    };
+
+    if (appendOnly && list && u) {
+      list.querySelector('.chat-empty')?.remove();
+      list.append(row(u.msgs[u.msgs.length - 1]));
+      while (list.childElementCount > USER_LOG_MAX) list.firstElementChild.remove();
+      cardEl.querySelector('.uc-count').textContent = countText(u);
+      if (nearBottom) list.scrollTop = list.scrollHeight;
+      return;
+    }
+
+    cardEl.textContent = '';
+    const name = u?.name || login;
+    const badges = h('span', { class: 'uc-badges' });
+    for (const b of (u?.badges || '').split(',')) {
+      const key = b.split('/')[0];
+      const label = { broadcaster: 'LIVE', moderator: 'MOD', vip: 'VIP', subscriber: 'SUB', partner: '✓' }[key];
+      if (label) badges.append(h('span', { class: 'badge b-' + key, text: label }));
+    }
+    const nameEl = h('b', { class: 'uc-name', text: name });
+    const sample = PrismChat.renderMessage({ tags: { color: u?.color || '' }, nick: login, text: '' }, {});
+    nameEl.style.color = sample.querySelector('.name').style.color;
+
+    const newList = h('div', { class: 'uc-list' });
+    if (u?.msgs.length) for (const x of u.msgs) newList.append(row(x));
+    else newList.append(h('div', { class: 'chat-empty', text: `No messages from ${name} since Prism joined #${ch}.` }));
+
+    cardEl.append(
+      h('div', { class: 'uc-head' },
+        h('div', { class: 'uc-who' }, badges, nameEl, h('span', { class: 'uc-count', text: u ? countText(u) : '' })),
+        h('button', { class: 'icon-btn', title: 'Close', text: '✕', onclick: closeUserCard })),
+      newList,
+      h('div', { class: 'uc-actions' },
+        h('button', { class: 'btn', text: '@ Mention', hidden: !chat.signedIn, onclick: () => {
+          const input = $('#chat-input');
+          input.value = (input.value ? input.value.replace(/\s*$/, ' ') : '') + '@' + name + ' ';
+          closeUserCard();
+          input.focus();
+        } }),
+        h('button', { class: 'btn', text: 'Twitch profile', onclick: () => prism.openExternal(`https://www.twitch.tv/${login}`) }),
+        h('span', { class: 'uc-ch muted', text: '#' + ch })));
+    // Sit between the (possibly wrapped) tabs and the message box.
+    const footer = [$('#chat-form'), $('#chat-signin')].find((el) => !el.hidden);
+    cardEl.style.top = ($('#chat-tabs').offsetHeight + 6) + 'px';
+    cardEl.style.bottom = ((footer ? footer.offsetHeight : 0) + 6) + 'px';
+    cardEl.hidden = false;
+    if (scrollToEnd || nearBottom) newList.scrollTop = newList.scrollHeight;
+  }
+  function countText(u) {
+    const n = u.msgs.length;
+    return `${n}${n >= USER_LOG_MAX ? '+' : ''} message${n === 1 ? '' : 's'}`;
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && userCard) closeUserCard(); });
+  document.addEventListener('click', (e) => { if (userCard && !cardEl.contains(e.target)) closeUserCard(); });
 
   // YouTube and Kick chats are their own pages; only the one you're viewing stays loaded.
   function webChatUrl(s) {
@@ -627,6 +755,7 @@
     if (s.chatOff) { setChatOff(key, false); return; }
     if (!S.chatVisible) { S.chatVisible = true; applyChatVisible(); save({ chatVisible: true }); }
     chatKey = key;
+    if (userCard) closeUserCard();
     for (const [k, p] of panes) {
       if (p.kind === 'web' && k !== key) dropChatPane(k);
     }
@@ -669,7 +798,7 @@
     if (!s) return;
     s.chatOff = off;
     if (s.platform === 'twitch') {
-      if (off) { chat.part(s.id); dropChatPane('twitch:' + s.id); } else chat.join(s.id);
+      if (off) { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); } else chat.join(s.id);
     } else if (off) dropChatPane(key);
     persistStreams();
     if (!off) { chatKey = key; setChat(key); }
@@ -716,7 +845,9 @@
     const text = input.value;
     if (chat.send(s.id, text)) {
       const us = chat.userState[s.id] || {};
-      queue('twitch:' + s.id, () => PrismChat.renderMessage({ tags: { ...us, emotes: '', 'display-name': us['display-name'] || selfLogin }, nick: selfLogin, text }, msgOpts(s.id)));
+      const mine = { tags: { ...us, emotes: '', 'display-name': us['display-name'] || selfLogin, login: selfLogin }, nick: selfLogin, text };
+      logUserMessage(s.id, mine);
+      queue('twitch:' + s.id, () => PrismChat.renderMessage(mine, msgOpts(s.id)));
       const p = panes.get('twitch:' + s.id);
       if (p) p.stick = true;
       input.value = '';
