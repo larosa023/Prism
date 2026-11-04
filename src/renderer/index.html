@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https: wss:; media-src https:;">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https: wss:; media-src https: blob:; worker-src blob:;">
   <title>Prism</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -158,6 +158,11 @@
 
         <div class="card">
           <h3>Performance</h3>
+          <label class="row"><span><b>Twitch player</b><small>The lightweight player uses far less memory, and handles ads itself. Twitch's player is the full official one.</small></span>
+            <select data-setting="twitchPlayer">
+              <option value="native">Lightweight (recommended)</option>
+              <option value="embed">Twitch's player</option>
+            </select></label>
           <label class="row"><span><b>Unload idle tabs</b><small>Frees memory from a platform tab after 2 minutes away (unless it's playing sound).</small></span>
             <input type="checkbox" class="switch" data-setting="unloadInactiveTabs"></label>
           <label class="row"><span><b>One stream with sound</b><small>Unmuting a multi-view stream mutes the others.</small></span>
@@ -186,6 +191,8 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <script src="../../node_modules/hls.js/dist/hls.light.min.js"></script>
+  <script src="native-player.js"></script>
   <script src="parse.js"></script>
   <script src="chat.js"></script>
   <script src="app.js"></script>

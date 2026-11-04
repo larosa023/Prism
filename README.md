@@ -4,6 +4,7 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 
 ## Features
 
+- **Lightweight Twitch player**: Twitch streams play in Prism's own video player (hls.js) instead of a separate player.twitch.tv page per stream, so several streams use a fraction of the memory. Quality fits the tile size automatically (or pick one per stream), only a few seconds of video are buffered, and ad breaks switch to Twitch's ad-free backup stream. If a stream won't play, that tile falls back to Twitch's own player. *Settings → Performance → Twitch player* switches back to Twitch's player for all streams.
 - **Multi-view**: watch several streams at once in a Grid or Focus layout (one big, the rest stacked). Mute, focus, reload, or remove each one from its hover bar. *One stream with sound* keeps audio from piling up.
 - **Lean Twitch chat**: a native chat that uses one connection for every channel, keeps a capped history, and shows Twitch, 7TV, BTTV and FFZ emotes. It's much lighter than loading twitch.tv's chat page per stream. If you're signed in, you can chat from it.
 - **Following**: see which Twitch channels you follow are live and add them with one click.

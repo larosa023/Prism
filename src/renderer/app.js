@@ -147,7 +147,7 @@
   let chatKey = null;
 
   const visibleStreams = () => streams.filter((s) => s.platform !== 'kick' || S.showKick);
-  const persistStreams = () => save({ streams });
+  const persistStreams = () => save({ streams: streams.map(({ forceEmbed, ...rest }) => rest) });
 
   function playerUrl(s) {
     if (s.platform === 'twitch') return `https://player.twitch.tv/?channel=${encodeURIComponent(s.id)}&parent=twitch.tv&autoplay=true&muted=false`;
@@ -155,27 +155,84 @@
     if (s.platform === 'kick') return `https://player.kick.com/${encodeURIComponent(s.id)}?autoplay=true&muted=false`;
   }
 
+  const useNative = (s) => s.platform === 'twitch' && S.twitchPlayer !== 'embed' && !s.forceEmbed && window.NativeTwitchPlayer && window.Hls?.isSupported();
+
   function makeTile(s) {
     const key = keyOf(s);
-    const wvAttrs = { partition: info.platforms[s.platform].partition, src: playerUrl(s), webpreferences: 'backgroundThrottling=no' };
-    if (s.platform === 'twitch') wvAttrs.preload = info.twitchPreload;
-    if (s.platform === 'youtube') wvAttrs.httpreferrer = 'https://www.youtube.com/';
-    const wv = h('webview', wvAttrs);
-
     const muteBtn = h('button', { class: 'tile-btn', title: 'Sound', onclick: () => setMuted(key, !s.muted) });
     const mutedTag = h('div', { class: 'tile-muted', text: 'Muted' });
+    const statusEl = h('div', { class: 'tile-status', hidden: true });
+    const extra = h('div', { class: 'tile-extra' });
+    const t = { el: null, stream: s, ready: false, muteBtn, mutedTag, statusEl };
+
+    let media;
+    if (useNative(s)) {
+      // Lightweight player: a <video> in this window, no extra browser process.
+      const player = new NativeTwitchPlayer(s.id, {
+        onStatus: (msg) => { statusEl.textContent = msg; statusEl.hidden = !msg; },
+        onLevels: (levels) => {
+          const opts = [['auto', 'Auto (fit tile)'], ['source', 'Source']];
+          const seen = new Set();
+          for (const l of levels.sort((a, b) => b.height - a.height)) {
+            if (!l.height || seen.has(l.height)) continue;
+            seen.add(l.height);
+            opts.push([String(l.height), l.height + 'p' + (l.fps > 30 ? l.fps : '')]);
+          }
+          quality.textContent = '';
+          for (const [v, label] of opts) quality.append(h('option', { value: v, text: label }));
+          quality.value = opts.some(([v]) => v === (s.quality || 'auto')) ? (s.quality || 'auto') : 'auto';
+        },
+        onFatal: (why) => {
+          // Fall back to Twitch's own player for this stream.
+          toast(`Switched ${s.label || s.id} to Twitch's player (${why}).`);
+          s.forceEmbed = true;
+          t.destroy();
+          tiles.delete(key);
+          renderStage();
+        }
+      });
+      const quality = h('select', { class: 'tile-select', title: 'Quality', onchange: () => {
+        s.quality = quality.value; player.setQuality(s.quality); persistStreams();
+      } }, h('option', { value: 'auto', text: 'Auto' }));
+      const volume = h('input', { class: 'tile-volume', type: 'range', min: 0, max: 1, step: 0.05, value: s.volume ?? 1, title: 'Volume',
+        oninput: () => { s.volume = Number(volume.value); player.setVolume(s.volume); if (s.muted && s.volume > 0) setMuted(key, false); },
+        onchange: () => persistStreams() });
+      extra.append(volume, quality);
+      player.setQuality(s.quality || 'auto');
+      player.setVolume(s.volume ?? 1);
+      media = player.video;
+      media.className = 'tile-video';
+      media.addEventListener('dblclick', () => (document.fullscreenElement ? document.exitFullscreen() : t.el.requestFullscreen().catch(() => {})));
+      t.ready = true;
+      t.player = player;
+      t.setAudio = (muted) => player.setMuted(muted);
+      t.reload = () => player.start();
+      t.destroy = () => { player.destroy(); t.el.remove(); };
+      requestAnimationFrame(() => player.start());
+    } else {
+      const wvAttrs = { partition: info.platforms[s.platform].partition, src: playerUrl(s), webpreferences: 'backgroundThrottling=no' };
+      if (s.platform === 'twitch') wvAttrs.preload = info.twitchPreload;
+      if (s.platform === 'youtube') wvAttrs.httpreferrer = 'https://www.youtube.com/';
+      const wv = h('webview', wvAttrs);
+      media = wv;
+      t.wv = wv;
+      t.setAudio = (muted) => { if (t.ready) try { wv.setAudioMuted(muted); } catch {} };
+      t.reload = () => wv.reload();
+      t.destroy = () => t.el.remove();
+      wv.addEventListener('dom-ready', () => { t.ready = true; applyMute(t); });
+    }
+
     const bar = h('div', { class: 'tile-bar' },
       h('span', { class: 'tile-label' }, h('span', { class: 'p p-' + s.platform, text: PLAT_NAMES[s.platform].toUpperCase() }), s.label || s.id),
       h('div', { class: 'grow' }),
+      extra,
       muteBtn,
       h('button', { class: 'tile-btn', title: 'Make main (Focus layout)', text: '⤢', onclick: () => { focusKey = key; if (S.layout !== 'focus') setLayout('focus'); else layout(); } }),
       h('button', { class: 'tile-btn', title: 'Show this chat', text: 'Chat', onclick: () => setChat(key) }),
-      h('button', { class: 'tile-btn', title: 'Reload', text: '⟳', onclick: () => wv.reload() }),
+      h('button', { class: 'tile-btn', title: 'Reload', text: '⟳', onclick: () => t.reload() }),
       h('button', { class: 'tile-btn', title: 'Remove', text: '✕', onclick: () => removeStream(key) })
     );
-    const el = h('div', { class: 'tile' }, wv, bar, mutedTag);
-    const t = { el, wv, stream: s, ready: false, muteBtn, mutedTag };
-    wv.addEventListener('dom-ready', () => { t.ready = true; applyMute(t); });
+    t.el = h('div', { class: 'tile' }, media, bar, statusEl, mutedTag);
     tiles.set(key, t);
     applyMute(t);
     return t;
@@ -184,7 +241,7 @@
   function applyMute(t) {
     t.muteBtn.textContent = t.stream.muted ? '🔇' : '🔊';
     t.mutedTag.hidden = !t.stream.muted;
-    if (t.ready) try { t.wv.setAudioMuted(!!t.stream.muted); } catch {}
+    t.setAudio(!!t.stream.muted);
   }
 
   function setMuted(key, muted) {
@@ -199,7 +256,7 @@
   function renderStage() {
     const vis = visibleStreams();
     const keys = new Set(vis.map(keyOf));
-    for (const [k, t] of tiles) if (!keys.has(k)) { t.el.remove(); tiles.delete(k); }
+    for (const [k, t] of tiles) if (!keys.has(k)) { t.destroy(); tiles.delete(k); }
     vis.forEach((s, i) => {
       const k = keyOf(s);
       let t = tiles.get(k);
@@ -587,6 +644,10 @@
   function applySetting(k) {
     if (k === 'showKick') { applyKick(); renderAccounts(); }
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
+    if (k === 'twitchPlayer') {
+      for (const [key, t] of tiles) if (t.stream.platform === 'twitch') { delete t.stream.forceEmbed; t.destroy(); tiles.delete(key); }
+      renderStage();
+    }
     if (k === 'youtubeRowCount') Browse.youtube.applyYouTubeRows();
     if (k === 'twitchPreviews') { Browse.twitch.reload(); toast('Twitch tab reloaded with the new preview setting.'); }
     if (k === 'twitchAdMethod') {
@@ -599,7 +660,7 @@
   }
 
   function reloadTwitch() {
-    for (const t of tiles.values()) if (t.stream.platform === 'twitch') t.wv.reload();
+    for (const t of tiles.values()) if (t.stream.platform === 'twitch' && t.wv) t.wv.reload();
     Browse.twitch.reload();
   }
 
@@ -679,7 +740,7 @@
               if (!confirm(`Sign out of ${PLAT_NAMES[p]} in Prism?`)) return;
               await prism.accounts.signOut(p);
               Browse[p].destroy();
-              for (const t of tiles.values()) if (t.stream.platform === p) t.wv.reload();
+              for (const t of tiles.values()) if (t.stream.platform === p) t.reload();
               if (p === 'twitch') refreshChatAuth();
               renderAccounts();
             } })

@@ -1,7 +1,7 @@
 {
   "name": "prism",
   "productName": "Prism",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lightweight, ad-light multi-stream client for Twitch, YouTube, TikTok and Kick",
   "main": "src/main/main.js",
   "author": "Anthony LaRosa",
@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.20.3",
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "hls.js": "^1.7.4"
   },
   "devDependencies": {
     "electron": "^45.2.2",

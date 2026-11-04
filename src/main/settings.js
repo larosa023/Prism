@@ -29,6 +29,7 @@ const DEFAULTS = {
   youtubeRowCount: 5,       // videos per row on YouTube (0 = YouTube's default)
 
   // Performance
+  twitchPlayer: 'native',   // 'native' = Prism's lightweight player, 'embed' = Twitch's own player
   unloadInactiveTabs: true, // free RAM from browse tabs you're not looking at
   singleAudio: true,        // only one multi-view stream plays sound at a time
   chatMaxLines: 250,

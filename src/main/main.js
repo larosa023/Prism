@@ -5,6 +5,7 @@ const settings = require('./settings');
 const adblock = require('./adblock');
 const updater = require('./updater');
 const twitchAds = require('./twitch-ads');
+require('./twitch-stream');
 
 // ---------------------------------------------------------------------------
 // Platforms. Each one gets its own saved session so sign-ins stick.
