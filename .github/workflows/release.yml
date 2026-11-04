@@ -24,6 +24,18 @@ jobs:
 
       - run: npm ci
 
+      # When started by hand, tag the commit with the version from package.json
+      # so the release has a tag to attach to.
+      - name: Tag this version
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$v" >/dev/null; then
+            git tag "$v"
+            git push origin "$v"
+          fi
+
       - name: Build and publish
         run: npx electron-builder --win --publish always
         env:
