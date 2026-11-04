@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('prism', {
     playlist: (login, url) => ipcRenderer.invoke('twitch:stream-playlist', login, url),
     forget: (login) => ipcRenderer.send('twitch:stream-forget', login)
   },
+  twitchSearch: (q) => ipcRenderer.invoke('twitch:search', q),
   twitchFollowing: () => ipcRenderer.invoke('twitch:following'),
   youtubeResolveLive: (url) => ipcRenderer.invoke('youtube:resolve-live', url),
   openExternal: (url) => ipcRenderer.invoke('open-external', url)

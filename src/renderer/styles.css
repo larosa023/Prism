@@ -51,7 +51,7 @@ code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
   background: conic-gradient(from 210deg, #9b6bff, #25f4ee, #53fc18, #ff3b3b, #9b6bff);
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
-.add-form { display: flex; gap: 6px; flex: 1; max-width: 560px; }
+.add-form { display: flex; gap: 6px; flex: 1; max-width: 560px; position: relative; }
 .add-form input {
   flex: 1; height: 26px; padding: 0 10px;
   background: var(--bg-2); border: 1px solid var(--line); border-radius: 7px; outline: none;
@@ -284,3 +284,21 @@ input[type=range] { accent-color: var(--accent); }
   font-size: 12px; padding: 4px 9px; border-radius: 6px; background: rgba(0,0,0,.7); color: var(--text);
 }
 .tile:fullscreen { border: 0; border-radius: 0; }
+
+/* ---- Add-stream suggestions --------------------------------------------- */
+.suggest {
+  position: absolute; top: 31px; left: 0; right: 52px; z-index: 40;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0,0,0,.55); padding: 4px; max-height: 60vh; overflow-y: auto;
+}
+.sug { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+.sug.on, .sug:hover { background: var(--bg-3); }
+.sug img, .sug .ph { width: 28px; height: 28px; border-radius: 50%; flex: none; background: var(--bg-3); }
+.sug .meta { flex: 1; min-width: 0; }
+.sug .n { font-weight: 600; }
+.sug .g { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sug .v { font-size: 12px; color: #e5484d; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+.sug .v::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #e5484d; }
+.sug .off { font-size: 12px; color: var(--muted); }
+.sug .added { font-size: 11px; color: var(--muted); }
+.sug-hint { padding: 6px 8px; color: var(--muted); font-size: 12px; }

@@ -364,13 +364,102 @@
     markLive();
   }
 
+  // ---- Add box with channel suggestions ----------------------------------
+  const addInput = $('#add-input');
+  const sugBox = $('#suggest');
+  let sugItems = [];
+  let sugIndex = -1;
+  let sugTimer = null;
+  let sugSeq = 0;
+  let followingCache = [];
+  const searchCache = new Map();
+
+  const fmtViewers = (n) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K' : String(n));
+  const looksLikeLink = (v) => /[/:.]/.test(v) && !/^@/.test(v);
+
+  function hideSuggest() { sugBox.hidden = true; sugItems = []; sugIndex = -1; }
+
+  function renderSuggest(q, items, loading) {
+    sugItems = items;
+    if (sugIndex >= items.length) sugIndex = items.length - 1;
+    sugBox.textContent = '';
+    const added = new Set(streams.filter((s) => s.platform === 'twitch').map((s) => s.id));
+    items.forEach((c, i) => {
+      sugBox.append(h('div', { class: 'sug' + (i === sugIndex ? ' on' : ''),
+        onmousedown: (e) => { e.preventDefault(); pickSuggestion(i); },
+        onmouseenter: () => { sugIndex = i; $$('.sug', sugBox).forEach((el, j) => el.classList.toggle('on', j === i)); } },
+        c.avatar ? h('img', { src: c.avatar, alt: '' }) : h('div', { class: 'ph' }),
+        h('div', { class: 'meta' }, h('div', { class: 'n', text: c.name }), h('div', { class: 'g', text: c.live ? (c.game || 'Live') : c.login })),
+        added.has(c.login) ? h('span', { class: 'added', text: 'In multi-view' })
+          : c.live ? h('span', { class: 'v', text: fmtViewers(c.viewers) }) : h('span', { class: 'off', text: 'Offline' })));
+    });
+    if (!items.length) sugBox.append(h('div', { class: 'sug-hint', text: loading ? 'Searching…' : `No channels found. Press Enter to add "${q}" anyway.` }));
+    else if (loading) sugBox.append(h('div', { class: 'sug-hint', text: 'Searching…' }));
+    sugBox.hidden = false;
+  }
+
+  function localMatches(q) {
+    const l = q.toLowerCase();
+    return followingCache.filter((c) => c.login.includes(l) || c.name.toLowerCase().includes(l))
+      .map((c) => ({ login: c.login.toLowerCase(), name: c.name, avatar: c.avatar, live: true, viewers: c.viewers, game: c.game }));
+  }
+
+  function merge(a, b) {
+    const seen = new Set();
+    return [...a, ...b].filter((c) => (seen.has(c.login) ? false : seen.add(c.login))).slice(0, 8);
+  }
+
+  addInput.addEventListener('input', () => {
+    clearTimeout(sugTimer);
+    const q = addInput.value.trim();
+    sugIndex = -1;
+    if (q.length < 2 || looksLikeLink(q)) return hideSuggest();
+    const local = localMatches(q);
+    if (searchCache.has(q.toLowerCase())) return renderSuggest(q, merge(local, searchCache.get(q.toLowerCase())), false);
+    renderSuggest(q, local, true);
+    const seq = ++sugSeq;
+    sugTimer = setTimeout(async () => {
+      const res = await prism.twitchSearch(q).catch(() => []);
+      searchCache.set(q.toLowerCase(), res);
+      if (seq !== sugSeq || addInput.value.trim() !== q) return;
+      renderSuggest(q, merge(localMatches(q), res), false);
+    }, 180);
+  });
+
+  addInput.addEventListener('keydown', (e) => {
+    if (sugBox.hidden || !sugItems.length) { if (e.key === 'Escape') hideSuggest(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const n = sugItems.length;
+      sugIndex = e.key === 'ArrowDown' ? (sugIndex + 1) % n : (sugIndex <= 0 ? n - 1 : sugIndex - 1);
+      $$('.sug', sugBox).forEach((el, j) => el.classList.toggle('on', j === sugIndex));
+    } else if (e.key === 'Tab' && sugIndex < 0) {
+      e.preventDefault();
+      sugIndex = 0;
+      $$('.sug', sugBox).forEach((el, j) => el.classList.toggle('on', j === 0));
+    } else if (e.key === 'Escape') {
+      hideSuggest();
+    }
+  });
+  addInput.addEventListener('blur', () => setTimeout(hideSuggest, 120));
+  addInput.addEventListener('focus', () => { if (addInput.value.trim().length >= 2) addInput.dispatchEvent(new Event('input')); });
+
+  function pickSuggestion(i) {
+    const c = sugItems[i];
+    if (!c) return;
+    addStream({ platform: 'twitch', id: c.login, label: c.name });
+    addInput.value = '';
+    hideSuggest();
+  }
+
   $('#add-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const input = $('#add-input');
-    const v = input.value.trim();
+    if (!sugBox.hidden && sugIndex >= 0) return pickSuggestion(sugIndex);
+    const v = addInput.value.trim();
     if (!v) return;
     addStream(parseStream(v));
-    input.value = '';
+    addInput.value = '';
+    hideSuggest();
   });
 
   $('#toggle-chat').addEventListener('click', () => {
@@ -582,6 +671,7 @@
     list.textContent = '';
     list.append(h('div', { class: 'chat-empty', text: 'Loading…' }));
     const res = await prism.twitchFollowing();
+    followingCache = res.live || [];
     list.textContent = '';
     if (!res.signedIn) {
       list.append(h('div', { class: 'chat-empty' }, 'Sign in on the ',
@@ -803,5 +893,6 @@
   showView(S.lastView && S.lastView !== 'settings' ? S.lastView : 'multiview');
   refreshChatAuth();
   if (S.thirdPartyEmotes) loadEmotes();
+  prism.twitchFollowing().then((r) => (followingCache = r.live || [])).catch(() => {});
   prism.updater.state().then(showUpdater);
 })();

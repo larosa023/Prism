@@ -1,6 +1,7 @@
-const { app, BrowserWindow, ipcMain, session, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, Menu, net } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
+const crypto = require('crypto');
 const settings = require('./settings');
 const adblock = require('./adblock');
 const updater = require('./updater');
@@ -269,6 +270,69 @@ ipcMain.handle('twitch:following', async () => {
   } catch (e) {
     return { signedIn: true, live: [], error: e.message };
   }
+});
+
+// Channel suggestions for the "Add a stream" box.
+// Asks Twitch three ways at once (exact name, search suggestions, channel
+// search) and merges whatever comes back, so one failing doesn't break it.
+const SEARCH_QUERIES = {
+  exact: `query($login: String!) { user(login: $login) {
+    login displayName profileImageURL(width: 50) stream { viewersCount game { displayName } } } }`,
+  suggest: `query($q: String!, $id: ID!) { searchSuggestions(queryFragment: $q, requestID: $id, withOfflineChannelContent: true) {
+    edges { node { text content { __typename ... on SearchSuggestionChannel {
+      login isLive profileImageURL(width: 50) user { displayName stream { viewersCount game { displayName } } } } } } } } }`,
+  search: `query($q: String!) { searchFor(userQuery: $q, platform: "web") { channels { items {
+    login displayName profileImageURL(width: 50) stream { viewersCount game { displayName } } } } } }`
+};
+
+async function gql(query, variables) {
+  const res = await net.fetch('https://gql.twitch.tv/gql', {
+    method: 'POST',
+    headers: { 'Client-Id': TWITCH_WEB_CLIENT_ID, 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ query, variables })
+  });
+  const json = await res.json();
+  return json?.data || null;
+}
+
+ipcMain.handle('twitch:search', async (_e, q) => {
+  q = String(q || '').trim().replace(/^@/, '');
+  if (q.length < 2 || q.length > 40) return [];
+  const login = q.toLowerCase().replace(/\s+/g, '');
+  const id = crypto.randomUUID();
+  const [exact, suggest, search] = await Promise.all([
+    /^\w{2,25}$/.test(login) ? gql(SEARCH_QUERIES.exact, { login }).catch(() => null) : null,
+    gql(SEARCH_QUERIES.suggest, { q, id }).catch(() => null),
+    gql(SEARCH_QUERIES.search, { q }).catch(() => null)
+  ]);
+  const out = new Map();
+  const add = (c) => {
+    if (!c || !c.login || out.has(c.login.toLowerCase())) return;
+    out.set(c.login.toLowerCase(), {
+      login: c.login.toLowerCase(),
+      name: c.name || c.login,
+      avatar: c.avatar || '',
+      live: !!c.live,
+      viewers: c.viewers || 0,
+      game: c.game || ''
+    });
+  };
+  const fromUser = (u) => u && ({
+    login: u.login, name: u.displayName, avatar: u.profileImageURL,
+    live: !!u.stream, viewers: u.stream?.viewersCount, game: u.stream?.game?.displayName
+  });
+  add(fromUser(exact?.user));
+  for (const edge of suggest?.searchSuggestions?.edges || []) {
+    const c = edge?.node?.content;
+    if (c?.__typename !== 'SearchSuggestionChannel') continue;
+    add({ login: c.login, name: c.user?.displayName || edge.node.text, avatar: c.profileImageURL,
+          live: c.isLive || !!c.user?.stream, viewers: c.user?.stream?.viewersCount, game: c.user?.stream?.game?.displayName });
+  }
+  for (const u of search?.searchFor?.channels?.items || []) add(fromUser(u));
+  // Exact match first, then live channels by viewers, then the rest.
+  return [...out.values()]
+    .sort((a, b) => (b.login === login) - (a.login === login) || (b.live - a.live) || (b.viewers - a.viewers))
+    .slice(0, 8);
 });
 
 // Turn a YouTube @handle or channel link into the video that's live right now.
