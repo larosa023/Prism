@@ -25,17 +25,19 @@
 
   <nav class="sidebar">
     <button class="nav-btn active" data-view="multiview" title="Multi-view">
-      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></svg>
+      <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></svg></span><span class="lbl">Multi-view</span>
     </button>
     <div class="nav-sep"></div>
-    <button class="nav-btn plat twitch" data-view="twitch" title="Twitch">TW</button>
-    <button class="nav-btn plat youtube" data-view="youtube" title="YouTube">YT</button>
-    <button class="nav-btn plat tiktok" data-view="tiktok" title="TikTok">TT</button>
-    <button class="nav-btn plat kick" data-view="kick" title="Kick" hidden>K</button>
-    <div class="nav-fill"></div>
+    <button class="nav-btn plat twitch" data-view="twitch" title="Twitch"><span class="ic">TW</span><span class="lbl">Twitch</span></button>
+    <button class="nav-btn plat youtube" data-view="youtube" title="YouTube"><span class="ic">YT</span><span class="lbl">YouTube</span></button>
+    <button class="nav-btn plat tiktok" data-view="tiktok" title="TikTok"><span class="ic">TT</span><span class="lbl">TikTok</span></button>
+    <button class="nav-btn plat kick" data-view="kick" title="Kick" hidden><span class="ic">K</span><span class="lbl">Kick</span></button>
+    <div class="nav-sep"></div>
+    <div id="side-live" class="side-live"></div>
     <button class="nav-btn" data-view="settings" title="Settings">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>
+      <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg></span><span class="lbl">Settings</span>
     </button>
+    <div class="resizer resizer-right" id="side-resizer" title="Drag to resize"></div>
   </nav>
 
   <main class="content">
@@ -60,7 +62,9 @@
           </div>
         </div>
         <aside id="chat" class="chat">
+          <div class="resizer resizer-left" id="chat-resizer" title="Drag to resize"></div>
           <div id="chat-tabs" class="chat-tabs"></div>
+          <div id="chat-manage" class="chat-manage" hidden></div>
           <div id="chat-body" class="chat-body"></div>
           <div id="chat-more" class="chat-more" hidden>New messages below</div>
           <form id="chat-form" class="chat-form" autocomplete="off" hidden>

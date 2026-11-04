@@ -147,6 +147,7 @@
   let chatKey = null;
 
   const visibleStreams = () => streams.filter((s) => s.platform !== 'kick' || S.showKick);
+  const chatStreams = () => visibleStreams().filter((s) => !s.chatOff);
   const persistStreams = () => save({ streams: streams.map(({ forceEmbed, ...rest }) => rest) });
 
   function playerUrl(s) {
@@ -267,6 +268,7 @@
     $('#empty').hidden = vis.length > 0;
     $('#stage-count').textContent = vis.length ? `${vis.length} stream${vis.length > 1 ? 's' : ''}` : '';
     renderChatTabs();
+    renderSideLive();
     layout();
   }
 
@@ -357,7 +359,7 @@
     if (!s) return;
     streams = streams.filter((x) => x !== s);
     persistStreams();
-    if (s.platform === 'twitch') chat.part(s.id);
+    if (s.platform === 'twitch') { chat.part(s.id); dropChatPane('twitch:' + s.id); }
     dropChatPane(key);
     if (chatKey === key) chatKey = null;
     renderStage();
@@ -534,6 +536,7 @@
   // Batch new messages once per frame so busy chats stay smooth.
   let flushScheduled = false;
   function queue(key, build) {
+    if (key.startsWith('twitch:') && !chat.channels.has(key.slice(7))) return;
     const p = key.startsWith('twitch:') ? twitchPane(key.slice(7)) : panes.get(key);
     if (!p) return;
     p.queue.push(build);
@@ -590,6 +593,8 @@
   function setChat(key) {
     const s = visibleStreams().find((x) => keyOf(x) === key);
     if (!s) return;
+    if (s.chatOff) { setChatOff(key, false); return; }
+    if (!S.chatVisible) { S.chatVisible = true; applyChatVisible(); save({ chatVisible: true }); }
     chatKey = key;
     for (const [k, p] of panes) {
       if (p.kind === 'web' && k !== key) dropChatPane(k);
@@ -605,23 +610,67 @@
 
   function renderChatTabs() {
     const vis = visibleStreams();
+    const on = chatStreams();
     const tabs = $('#chat-tabs');
     tabs.textContent = '';
-    if (!vis.length) {
+    if (!on.length) {
+      chatKey = null;
       chatBody.querySelectorAll('.chat-pane').forEach((p) => p.classList.remove('on'));
       $('#chat-form').hidden = true;
       $('#chat-signin').hidden = true;
+      if (vis.length) tabs.append(h('button', { class: 'chat-tab more', text: 'All chats are off · turn some on', onclick: toggleChatManage }));
       return;
     }
-    if (!chatKey || !vis.some((s) => keyOf(s) === chatKey)) { setChat(keyOf(vis[0])); return; }
-    for (const s of vis) {
+    if (!chatKey || !on.some((s) => keyOf(s) === chatKey)) { setChat(keyOf(on[0])); return; }
+    for (const s of on) {
       const k = keyOf(s);
-      tabs.append(h('button', { class: 'chat-tab' + (k === chatKey ? ' on' : ''), text: s.label || s.id, title: PLAT_NAMES[s.platform], onclick: () => setChat(k) }));
+      tabs.append(h('button', { class: 'chat-tab' + (k === chatKey ? ' on' : ''), title: `${s.label || s.id} · ${PLAT_NAMES[s.platform]}`, onclick: () => setChat(k) },
+        h('span', { class: 'tl', text: s.label || s.id }),
+        h('span', { class: 'x', text: '✕', title: 'Turn this chat off', onclick: (e) => { e.stopPropagation(); setChatOff(k, true); } })));
     }
+    const off = vis.length - on.length;
+    tabs.append(h('button', { class: 'chat-tab more', text: off ? `+${off} off` : '⋯', title: 'Choose which chats are on', onclick: toggleChatManage }));
   }
 
+  // Turning a chat off leaves the channel and frees its memory.
+  function setChatOff(key, off) {
+    const s = streams.find((x) => keyOf(x) === key);
+    if (!s) return;
+    s.chatOff = off;
+    if (s.platform === 'twitch') {
+      if (off) { chat.part(s.id); dropChatPane('twitch:' + s.id); } else chat.join(s.id);
+    } else if (off) dropChatPane(key);
+    persistStreams();
+    if (!off) { chatKey = key; setChat(key); }
+    else { if (chatKey === key) chatKey = null; renderChatTabs(); updateChatInput(); }
+    if (!$('#chat-manage').hidden) renderChatManage();
+  }
+
+  function renderChatManage() {
+    const box = $('#chat-manage');
+    box.textContent = '';
+    box.append(h('div', { class: 'h', text: 'Chats shown' }));
+    for (const s of visibleStreams()) {
+      const k = keyOf(s);
+      box.append(h('label', {},
+        h('input', { type: 'checkbox', checked: !s.chatOff, onchange: (e) => setChatOff(k, !e.target.checked) }),
+        s.label || s.id,
+        h('span', { class: 'p p-' + s.platform, text: PLAT_NAMES[s.platform] })));
+    }
+  }
+  function toggleChatManage(e) {
+    e?.stopPropagation();
+    const box = $('#chat-manage');
+    box.hidden = !box.hidden;
+    if (!box.hidden) renderChatManage();
+  }
+  document.addEventListener('click', (e) => {
+    const box = $('#chat-manage');
+    if (!box.hidden && !box.contains(e.target)) box.hidden = true;
+  });
+
   function updateChatInput() {
-    const s = visibleStreams().find((x) => keyOf(x) === chatKey);
+    const s = chatStreams().find((x) => keyOf(x) === chatKey);
     const isTwitch = s?.platform === 'twitch';
     $('#chat-form').hidden = !(isTwitch && chat.signedIn);
     $('#chat-signin').hidden = !(isTwitch && !chat.signedIn);
@@ -672,6 +721,7 @@
     list.append(h('div', { class: 'chat-empty', text: 'Loading…' }));
     const res = await prism.twitchFollowing();
     followingCache = res.live || [];
+    renderSideLive();
     list.textContent = '';
     if (!res.signedIn) {
       list.append(h('div', { class: 'chat-empty' }, 'Sign in on the ',
@@ -868,6 +918,94 @@
   });
 
   // =========================================================================
+  // Resizable sidebar and chat
+  // =========================================================================
+  function applyPanelSizes() {
+    const side = S.sidebarWidth || 56;
+    document.body.style.setProperty('--sidebar', side + 'px');
+    document.body.classList.toggle('side-wide', side >= 120);
+    document.documentElement.style.setProperty('--chat-w', (S.chatWidth || 340) + 'px');
+    renderSideLive();
+    requestAnimationFrame(layout);
+  }
+
+  function makeResizer(el, { get, set, min, max, snap, dir }) {
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = get();
+      // A shield keeps the drag going even when the pointer passes over a video page.
+      const shield = h('div', { class: 'drag-shield' });
+      document.body.append(shield);
+      el.classList.add('dragging');
+      const move = (ev) => {
+        let w = startW + (ev.clientX - startX) * dir;
+        w = Math.max(min, Math.min(max, w, Math.round(window.innerWidth * 0.6)));
+        set(snap ? snap(w) : w, false);
+      };
+      const up = () => {
+        shield.remove();
+        el.classList.remove('dragging');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        set(get(), true);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    el.addEventListener('dblclick', () => set(null, true)); // double-click: back to default
+  }
+
+  makeResizer($('#side-resizer'), {
+    get: () => S.sidebarWidth || 56,
+    set: (w, done) => {
+      S.sidebarWidth = w == null ? 56 : Math.round(w);
+      applyPanelSizes();
+      if (done) save({ sidebarWidth: S.sidebarWidth });
+    },
+    min: 56, max: 300, dir: 1,
+    snap: (w) => (w < 110 ? 56 : w)   // in between snaps back to icons only
+  });
+  makeResizer($('#chat-resizer'), {
+    get: () => S.chatWidth || 340,
+    set: (w, done) => {
+      S.chatWidth = w == null ? 340 : Math.round(w);
+      applyPanelSizes();
+      if (done) save({ chatWidth: S.chatWidth });
+    },
+    min: 240, max: 900, dir: -1
+  });
+
+  // Live channels you follow, in the sidebar (avatars when narrow, names when wide).
+  function renderSideLive() {
+    const box = $('#side-live');
+    box.textContent = '';
+    if (!followingCache.length) return;
+    box.append(h('div', { class: 'head', text: 'Following · live' }));
+    const inView = new Set(streams.filter((s) => s.platform === 'twitch').map((s) => s.id));
+    for (const c of followingCache) {
+      const login = c.login.toLowerCase();
+      box.append(h('div', {
+        class: 'live-ch' + (inView.has(login) ? ' in-view' : ''),
+        title: `${c.name}${c.game ? ' · ' + c.game : ''} · ${fmtViewers(c.viewers)} viewers\n${c.title || ''}`,
+        onclick: () => { addStream({ platform: 'twitch', id: login, label: c.name }); if (currentView !== 'multiview') showView('multiview'); }
+      },
+        c.avatar ? h('img', { src: c.avatar, alt: '' }) : h('div', { class: 'ph' }),
+        h('span', { class: 'dot' }),
+        h('div', { class: 'meta' }, h('b', { text: c.name }), h('span', { text: c.game || 'Live' })),
+        h('span', { class: 'vc', text: fmtViewers(c.viewers) })));
+    }
+  }
+  async function refreshFollowing() {
+    try {
+      const r = await prism.twitchFollowing();
+      followingCache = r.live || [];
+    } catch {}
+    renderSideLive();
+  }
+  setInterval(refreshFollowing, 120000);
+
+  // =========================================================================
   // Shortcuts & start-up
   // =========================================================================
   document.addEventListener('click', (e) => {
@@ -888,11 +1026,12 @@
   $('.nav-btn.kick').hidden = !S.showKick;
   $$('#layout-seg button').forEach((b) => b.classList.toggle('on', b.dataset.layout === S.layout));
   applyChatVisible();
-  for (const s of streams) if (s.platform === 'twitch') chat.join(s.id);
+  for (const s of streams) if (s.platform === 'twitch' && !s.chatOff) chat.join(s.id);
   renderStage();
   showView(S.lastView && S.lastView !== 'settings' ? S.lastView : 'multiview');
   refreshChatAuth();
   if (S.thirdPartyEmotes) loadEmotes();
-  prism.twitchFollowing().then((r) => (followingCache = r.live || [])).catch(() => {});
+  applyPanelSizes();
+  refreshFollowing();
   prism.updater.state().then(showUpdater);
 })();
