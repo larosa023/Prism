@@ -1,0 +1,64 @@
+{
+  "name": "prism",
+  "productName": "Prism",
+  "version": "0.1.0",
+  "description": "Lightweight, ad-light multi-stream client for Twitch, YouTube, TikTok and Kick",
+  "main": "src/main/main.js",
+  "author": "Anthony LaRosa",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/larosa023/Prism.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.20.3",
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "electron": "^45.2.2",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.larosa.prism",
+    "productName": "Prism",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Prism-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "larosa023",
+        "repo": "Prism",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

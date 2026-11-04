@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https: wss:; media-src https:;">
+  <title>Prism</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand"><span class="brand-mark"></span>Prism</div>
+    <form id="add-form" class="add-form" autocomplete="off">
+      <input id="add-input" type="text" spellcheck="false"
+             placeholder="Add a stream: Twitch name, or paste a Twitch / YouTube / Kick link">
+      <button type="submit" class="btn btn-accent">Add</button>
+    </form>
+    <button id="live-btn" class="btn btn-ghost live-btn" title="Live channels you follow on Twitch">
+      <span class="dot"></span>Following
+    </button>
+    <div id="update-pill" class="update-pill" hidden></div>
+    <div class="titlebar-spacer"></div>
+  </header>
+
+  <nav class="sidebar">
+    <button class="nav-btn active" data-view="multiview" title="Multi-view">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></svg>
+    </button>
+    <div class="nav-sep"></div>
+    <button class="nav-btn plat twitch" data-view="twitch" title="Twitch">TW</button>
+    <button class="nav-btn plat youtube" data-view="youtube" title="YouTube">YT</button>
+    <button class="nav-btn plat tiktok" data-view="tiktok" title="TikTok">TT</button>
+    <button class="nav-btn plat kick" data-view="kick" title="Kick" hidden>K</button>
+    <div class="nav-fill"></div>
+    <button class="nav-btn" data-view="settings" title="Settings">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/></svg>
+    </button>
+  </nav>
+
+  <main class="content">
+    <!-- Multi-view -->
+    <section id="view-multiview" class="view active">
+      <div class="mv">
+        <div class="stage-wrap">
+          <div class="stage-bar">
+            <div class="seg" id="layout-seg">
+              <button data-layout="grid">Grid</button>
+              <button data-layout="focus">Focus</button>
+            </div>
+            <span class="stage-count" id="stage-count"></span>
+            <div class="grow"></div>
+            <button class="btn btn-ghost" id="toggle-chat">Hide chat</button>
+          </div>
+          <div id="stage" class="stage"></div>
+          <div id="empty" class="empty">
+            <div class="empty-mark"></div>
+            <h2>Nothing playing yet</h2>
+            <p>Type a Twitch channel above, paste a YouTube or Kick link, or pick someone from <b>Following</b>.</p>
+          </div>
+        </div>
+        <aside id="chat" class="chat">
+          <div id="chat-tabs" class="chat-tabs"></div>
+          <div id="chat-body" class="chat-body"></div>
+          <div id="chat-more" class="chat-more" hidden>New messages below</div>
+          <form id="chat-form" class="chat-form" autocomplete="off" hidden>
+            <input id="chat-input" type="text" maxlength="500" spellcheck="true" placeholder="Send a message">
+          </form>
+          <div id="chat-signin" class="chat-signin" hidden>
+            Read-only. <a href="#" data-goto="twitch">Sign in on the Twitch tab</a> to chat.
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Browse tabs (filled in on first visit) -->
+    <section id="view-twitch" class="view browse" data-platform="twitch"></section>
+    <section id="view-youtube" class="view browse" data-platform="youtube"></section>
+    <section id="view-tiktok" class="view browse" data-platform="tiktok"></section>
+    <section id="view-kick" class="view browse" data-platform="kick"></section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view settings">
+      <div class="settings-inner">
+        <h1>Settings</h1>
+
+        <div class="card">
+          <h3>Platforms</h3>
+          <label class="row"><span><b>Show Kick</b><small>Adds Kick to the sidebar and lets you add Kick streams.</small></span>
+            <input type="checkbox" class="switch" data-setting="showKick"></label>
+        </div>
+
+        <div class="card">
+          <h3>Accounts</h3>
+          <p class="muted">Sign in on each platform's tab. Prism keeps you signed in between launches.</p>
+          <div id="accounts" class="accounts"></div>
+        </div>
+
+        <div class="card">
+          <h3>Ad blocking</h3>
+          <label class="row"><span><b>Block ads and trackers</b><small>Uses uBlock Origin's filter lists, built in.</small></span>
+            <input type="checkbox" class="switch" data-setting="adblockEnabled"></label>
+          <label class="row"><span><b>Skip Twitch ads</b><small>Removes ads Twitch stitches into the video. Experimental: during a break you may see a short pause instead.</small></span>
+            <input type="checkbox" class="switch" data-setting="twitchAdSkip"></label>
+          <div class="sub">Filter lists</div>
+          <div id="filter-lists" class="lists"></div>
+          <div class="sub">Allowed sites <small>(ad blocking off here; one per line, e.g. <code>example.com</code>)</small></div>
+          <textarea id="allowlist" rows="3" spellcheck="false"></textarea>
+          <div class="sub">My filters <small>(uBlock Origin syntax, one per line)</small></div>
+          <textarea id="custom-filters" rows="5" spellcheck="false" placeholder="||ads.example.com^&#10;twitch.tv##.some-banner"></textarea>
+          <div class="actions">
+            <button class="btn btn-accent" id="save-filters">Save filters</button>
+            <button class="btn" id="update-lists">Update lists now</button>
+            <span id="adblock-status" class="muted"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Chat</h3>
+          <label class="row"><span><b>7TV, BTTV and FFZ emotes</b><small>Shows third-party emotes in Twitch chat.</small></span>
+            <input type="checkbox" class="switch" data-setting="thirdPartyEmotes"></label>
+          <label class="row"><span><b>Text size</b></span>
+            <input type="range" min="11" max="18" step="1" data-setting="chatFontSize" data-number></label>
+          <label class="row"><span><b>Messages kept per chat</b><small>Lower uses less memory.</small></span>
+            <select data-setting="chatMaxLines" data-number>
+              <option value="100">100</option><option value="250">250</option><option value="500">500</option><option value="1000">1000</option>
+            </select></label>
+        </div>
+
+        <div class="card">
+          <h3>Performance</h3>
+          <label class="row"><span><b>Unload idle tabs</b><small>Frees memory from a platform tab after 2 minutes away (unless it's playing sound).</small></span>
+            <input type="checkbox" class="switch" data-setting="unloadInactiveTabs"></label>
+          <label class="row"><span><b>One stream with sound</b><small>Unmuting a multi-view stream mutes the others.</small></span>
+            <input type="checkbox" class="switch" data-setting="singleAudio"></label>
+        </div>
+
+        <div class="card">
+          <h3>Updates</h3>
+          <label class="row"><span><b>Update automatically</b><small>Checks GitHub for new versions and installs them on restart.</small></span>
+            <input type="checkbox" class="switch" data-setting="autoUpdate"></label>
+          <div class="actions">
+            <button class="btn" id="check-updates">Check for updates</button>
+            <button class="btn btn-accent" id="install-update" hidden>Restart to update</button>
+            <span id="update-status" class="muted"></span>
+          </div>
+          <p class="muted small" id="version"></p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="live-panel" class="live-panel" hidden>
+    <div class="live-head"><b>Live on Twitch</b><button class="btn btn-ghost" id="live-refresh">Refresh</button></div>
+    <div id="live-list" class="live-list"></div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="parse.js"></script>
+  <script src="chat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
