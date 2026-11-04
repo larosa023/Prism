@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('prism', {
     signOut: (platform) => ipcRenderer.invoke('accounts:signout', platform)
   },
   twitchChatAuth: () => ipcRenderer.invoke('twitch:chat-auth'),
+  twitchAdScript: {
+    status: () => ipcRenderer.invoke('twitch:adscript-status'),
+    refresh: () => ipcRenderer.invoke('twitch:adscript-refresh'),
+    onStatus: on('twitch:adscript-status')
+  },
   twitchFollowing: () => ipcRenderer.invoke('twitch:following'),
   youtubeResolveLive: (url) => ipcRenderer.invoke('youtube:resolve-live', url),
   openExternal: (url) => ipcRenderer.invoke('open-external', url)

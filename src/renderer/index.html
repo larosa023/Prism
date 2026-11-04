@@ -99,8 +99,22 @@
           <h3>Ad blocking</h3>
           <label class="row"><span><b>Block ads and trackers</b><small>Uses uBlock Origin's filter lists, built in.</small></span>
             <input type="checkbox" class="switch" data-setting="adblockEnabled"></label>
-          <label class="row"><span><b>Skip Twitch ads</b><small>Removes ads Twitch stitches into the video. Experimental: during a break you may see a short pause instead.</small></span>
-            <input type="checkbox" class="switch" data-setting="twitchAdSkip"></label>
+          <label class="row"><span><b>Twitch ads</b><small>Twitch puts ads inside the video, so filter lists can't catch them. Pick how Prism handles them.</small></span>
+            <select data-setting="twitchAdMethod">
+              <option value="tas">TwitchAdSolutions script</option>
+              <option value="builtin">Prism built-in</option>
+              <option value="off">Off</option>
+            </select></label>
+          <div id="ad-script-box" class="ad-script">
+            <div class="sub">Script address <small>(same as uBlock's <code>userResourcesLocation</code>; works with video-swap-new or vaft)</small></div>
+            <input id="ad-script-url" class="text-input" type="text" spellcheck="false">
+            <div class="actions">
+              <button class="btn btn-accent" id="ad-script-save">Save</button>
+              <button class="btn" id="ad-script-refresh">Update now</button>
+              <button class="btn btn-ghost" id="ad-script-reset">Use default</button>
+              <span id="ad-script-status" class="muted"></span>
+            </div>
+          </div>
           <div class="sub">Filter lists</div>
           <div id="filter-lists" class="lists"></div>
           <div class="sub">Allowed sites <small>(ad blocking off here; one per line, e.g. <code>example.com</code>)</small></div>
@@ -112,6 +126,22 @@
             <button class="btn" id="update-lists">Update lists now</button>
             <span id="adblock-status" class="muted"></span>
           </div>
+        </div>
+
+        <div class="card">
+          <h3>Site tweaks</h3>
+          <label class="row"><span><b>Twitch sidebar previews</b><small>Hover a live channel in Twitch's left sidebar to preview it.</small></span>
+            <select data-setting="twitchPreviews">
+              <option value="video">Live video</option>
+              <option value="image">Thumbnail only</option>
+              <option value="off">Off</option>
+            </select></label>
+          <label class="row"><span><b>YouTube videos per row</b><small>Like YouTube Row Fixer: fit more (or fewer) videos on the home and subscriptions pages.</small></span>
+            <select data-setting="youtubeRowCount" data-number>
+              <option value="0">YouTube default</option>
+              <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+              <option value="6">6</option><option value="7">7</option><option value="8">8</option>
+            </select></label>
         </div>
 
         <div class="card">

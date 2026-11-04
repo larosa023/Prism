@@ -9,7 +9,8 @@ const DEFAULTS = {
 
   // Ad blocking (uBlock Origin filter lists)
   adblockEnabled: true,
-  twitchAdSkip: true,       // strips stitched Twitch ads from the video playlist
+  twitchAdMethod: 'tas',    // 'tas' = TwitchAdSolutions script, 'builtin' = Prism's own, 'off'
+  twitchAdScriptUrl: 'https://raw.githubusercontent.com/pixeltris/TwitchAdSolutions/master/video-swap-new/video-swap-new-ublock-origin.js',
   filterLists: {
     'ubo-filters': true,
     'ubo-badware': true,
@@ -22,6 +23,10 @@ const DEFAULTS = {
   },
   customFilters: '',        // user's own filter rules, one per line (uBO syntax)
   allowlist: [],            // sites where ad blocking is turned off
+
+  // Site tweaks (built-in versions of popular extensions)
+  twitchPreviews: 'video',  // hover previews in Twitch's sidebar: 'video' | 'image' | 'off'
+  youtubeRowCount: 5,       // videos per row on YouTube (0 = YouTube's default)
 
   // Performance
   unloadInactiveTabs: true, // free RAM from browse tabs you're not looking at
@@ -48,6 +53,9 @@ function load() {
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     data = { ...DEFAULTS, ...raw, filterLists: { ...DEFAULTS.filterLists, ...(raw.filterLists || {}) } };
+    // 0.1.x had an on/off switch; carry "off" over.
+    if (raw.twitchAdSkip === false && !raw.twitchAdMethod) data.twitchAdMethod = 'off';
+    delete data.twitchAdSkip;
   } catch {
     data = structuredClone(DEFAULTS);
   }

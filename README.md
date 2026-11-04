@@ -8,7 +8,9 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Lean Twitch chat**: a native chat that uses one connection for every channel, keeps a capped history, and shows Twitch, 7TV, BTTV and FFZ emotes. It's much lighter than loading twitch.tv's chat page per stream. If you're signed in, you can chat from it.
 - **Following**: see which Twitch channels you follow are live and add them with one click.
 - **Built-in ad blocking**: uBlock Origin's filter lists (Ads, Badware, Privacy, Quick fixes, Unbreak) plus EasyList and EasyPrivacy. You can turn lists on or off, allow specific sites, and add your own rules in uBO syntax.
-- **Twitch ad skipping (experimental)**: removes the ads Twitch stitches into the video. During an ad break you may see a short pause instead.
+- **Twitch ads**: by default Prism runs pixeltris's [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions) `video-swap-new` script on every Twitch page and player. It's the same script uBlock Origin loads with `userResourcesLocation` + `twitch.tv##+js(twitch-videoad)`. You can point it at another script (such as `vaft`), switch to Prism's simple built-in method, or turn it off.
+- **Twitch sidebar previews**: hover a live channel in Twitch's left sidebar to see a live video or thumbnail preview.
+- **YouTube videos per row**: a built-in YouTube Row Fixer for the home and subscriptions pages.
 - **Stays signed in**: each platform has its own saved session. You sign in on that platform's tab, and you can sign out from Settings.
 - **Platform tabs**: full Twitch, YouTube, TikTok and Kick sites. Use **+ Multi-view** on any channel or video page. Idle tabs unload after 2 minutes to free memory, unless they're playing sound.
 - **Kick toggle**: Kick stays hidden until you turn on *Settings → Platforms → Show Kick*.

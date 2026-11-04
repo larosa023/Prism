@@ -4,6 +4,7 @@ const { pathToFileURL } = require('url');
 const settings = require('./settings');
 const adblock = require('./adblock');
 const updater = require('./updater');
+const twitchAds = require('./twitch-ads');
 
 // ---------------------------------------------------------------------------
 // Platforms. Each one gets its own saved session so sign-ins stick.
@@ -175,6 +176,7 @@ ipcMain.handle('settings:get', () => settings.get());
 ipcMain.handle('settings:set', async (_e, patch) => {
   const s = settings.set(patch);
   if ('adblockEnabled' in patch) adblock.setEnabled(s.adblockEnabled);
+  if ('twitchAdScriptUrl' in patch) twitchAds.refresh(true).then((st) => send('twitch:adscript-status', st));
   if (ADBLOCK_KEYS.some((k) => k in patch)) adblock.rebuild(false).then((st) => send('adblock:status', st));
   return s;
 });
@@ -288,6 +290,7 @@ app.whenReady().then(async () => {
   for (const p of Object.values(PLATFORMS)) setupSession(session.fromPartition(p.partition));
   session.defaultSession.setUserAgent(CHROME_UA);
 
+  twitchAds.init();
   createWindow();
   updater.init(send);
 

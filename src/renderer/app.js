@@ -87,10 +87,13 @@
 
     function load() {
       if (wv) return;
-      wv = h('webview', { partition: p.partition, src: lastUrl, allowpopups: true, webpreferences: 'backgroundThrottling=yes' });
+      const attrs = { partition: p.partition, src: lastUrl, allowpopups: true, webpreferences: 'backgroundThrottling=yes' };
+      if (platform === 'twitch') attrs.preload = info.twitchPreload; // ad handling on the full site too
+      wv = h('webview', attrs);
       wv.addEventListener('did-navigate', onNav);
       wv.addEventListener('did-navigate-in-page', onNav);
       wv.addEventListener('dom-ready', onNav, { once: true });
+      if (platform === 'youtube') wv.addEventListener('dom-ready', applyYouTubeRows);
       root.append(wv);
     }
 
@@ -102,7 +105,28 @@
       wv = null;
     }
 
+    // YouTube Row Fixer: choose how many videos sit in each row.
+    let rowCssKey = null;
+    async function applyYouTubeRows() {
+      if (!wv || platform !== 'youtube') return;
+      try {
+        if (rowCssKey) { await wv.removeInsertedCSS(rowCssKey); rowCssKey = null; }
+        const n = Number(S.youtubeRowCount) || 0;
+        if (!n) return;
+        rowCssKey = await wv.insertCSS(`
+          ytd-rich-grid-renderer {
+            --ytd-rich-grid-items-per-row: ${n} !important;
+            --ytd-rich-grid-posts-per-row: ${n} !important;
+            --ytd-rich-grid-slim-items-per-row: ${n + 1} !important;
+            --ytd-rich-grid-game-cards-per-row: ${n + 1} !important;
+          }
+          ytd-rich-grid-row, ytd-rich-grid-row > #contents { display: contents !important; }
+        `);
+      } catch {}
+    }
+
     Browse[platform] = {
+      applyYouTubeRows,
       show() { clearTimeout(unloadTimer); load(); },
       hide() {
         clearTimeout(unloadTimer);
@@ -134,7 +158,7 @@
   function makeTile(s) {
     const key = keyOf(s);
     const wvAttrs = { partition: info.platforms[s.platform].partition, src: playerUrl(s), webpreferences: 'backgroundThrottling=no' };
-    if (s.platform === 'twitch' && S.twitchAdSkip) wvAttrs.preload = info.twitchPreload;
+    if (s.platform === 'twitch') wvAttrs.preload = info.twitchPreload;
     if (s.platform === 'youtube') wvAttrs.httpreferrer = 'https://www.youtube.com/';
     const wv = h('webview', wvAttrs);
 
@@ -543,6 +567,7 @@
     $('#custom-filters').value = S.customFilters || '';
     $('#version').textContent = `Prism ${info.version}`;
     renderAccounts();
+    renderAdScript();
     prism.adblock.status().then(showAdblockStatus);
     prism.updater.state().then(showUpdater);
   }
@@ -562,14 +587,50 @@
   function applySetting(k) {
     if (k === 'showKick') { applyKick(); renderAccounts(); }
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
-    if (k === 'twitchAdSkip') {
-      for (const [key, t] of tiles) if (t.stream.platform === 'twitch') { t.el.remove(); tiles.delete(key); }
-      renderStage();
-      toast(S.twitchAdSkip ? 'Twitch ad skipping on.' : 'Twitch ad skipping off.');
+    if (k === 'youtubeRowCount') Browse.youtube.applyYouTubeRows();
+    if (k === 'twitchPreviews') { Browse.twitch.reload(); toast('Twitch tab reloaded with the new preview setting.'); }
+    if (k === 'twitchAdMethod') {
+      reloadTwitch();
+      toast({ tas: 'Using TwitchAdSolutions for Twitch ads.', builtin: "Using Prism's built-in Twitch ad skip.", off: 'Twitch ad skipping off.' }[S.twitchAdMethod]);
+      renderAdScript();
     }
     if (k === 'thirdPartyEmotes' && S.thirdPartyEmotes) loadEmotes();
     if (k === 'adblockEnabled') { toast(S.adblockEnabled ? 'Ad blocking on.' : 'Ad blocking off.'); prism.adblock.status().then(showAdblockStatus); }
   }
+
+  function reloadTwitch() {
+    for (const t of tiles.values()) if (t.stream.platform === 'twitch') t.wv.reload();
+    Browse.twitch.reload();
+  }
+
+  async function renderAdScript(st) {
+    st = st || await prism.twitchAdScript.status();
+    const urlBox = $('#ad-script-url');
+    if (document.activeElement !== urlBox) urlBox.value = S.twitchAdScriptUrl || st.defaultUrl;
+    $('#ad-script-box').hidden = S.twitchAdMethod !== 'tas';
+    const el = $('#ad-script-status');
+    if (st.error && !st.loaded) el.textContent = "Couldn't load the script: " + st.error;
+    else if (st.loaded) el.textContent = `Loaded${st.version ? ' (script v' + st.version + ')' : ''} · updated ${new Date(st.updated).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` + (st.error ? ` · last update failed: ${st.error}` : '');
+    else el.textContent = 'Downloading the script…';
+  }
+  prism.twitchAdScript.onStatus((st) => { renderAdScript(st); reloadTwitch(); });
+  $('#ad-script-save').addEventListener('click', async () => {
+    const v = $('#ad-script-url').value.trim();
+    if (!/^https:\/\//.test(v)) return toast('The script address must start with https://');
+    await save({ twitchAdScriptUrl: v });
+    $('#ad-script-status').textContent = 'Downloading the script…';
+  });
+  $('#ad-script-reset').addEventListener('click', async () => {
+    const st = await prism.twitchAdScript.status();
+    $('#ad-script-url').value = st.defaultUrl;
+    await save({ twitchAdScriptUrl: st.defaultUrl });
+    $('#ad-script-status').textContent = 'Downloading the script…';
+  });
+  $('#ad-script-refresh').addEventListener('click', async () => {
+    $('#ad-script-status').textContent = 'Downloading the script…';
+    renderAdScript(await prism.twitchAdScript.refresh());
+    reloadTwitch();
+  });
 
   function applyKick() {
     $('.nav-btn.kick').hidden = !S.showKick;
