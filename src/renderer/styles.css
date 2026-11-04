@@ -134,7 +134,6 @@ code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
 }
 .tile:hover .tile-bar { opacity: 1; }
 .tile-label { font-weight: 600; font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(0,0,0,.55); }
-.tile-label .p { font-size: 10px; margin-right: 6px; opacity: .85; }
 .p-twitch { color: var(--twitch); } .p-youtube { color: var(--youtube); } .p-kick { color: var(--kick); }
 .tile-btn {
   height: 24px; min-width: 24px; padding: 0 7px; border: 0; border-radius: 6px;
@@ -356,3 +355,15 @@ input[type=range] { accent-color: var(--accent); }
 .chat-manage label:hover { background: var(--bg-3); }
 .chat-manage input { accent-color: var(--accent); }
 .chat-manage .p { font-size: 10px; margin-left: auto; }
+
+/* ---- Site icons --------------------------------------------------------- */
+.fav { width: 20px; height: 20px; border-radius: 5px; object-fit: contain; display: block; }
+.fav-sm { width: 14px; height: 14px; border-radius: 3px; }
+.fav-text { width: auto; height: auto; font-weight: 700; font-size: 12px; }
+.fav-sm.fav-text { font-size: 10px; }
+.nav-btn.plat { border-color: transparent; }
+.nav-btn.plat .fav { opacity: .8; filter: saturate(.85); transition: opacity .12s, filter .12s; }
+.nav-btn.plat:hover .fav, .nav-btn.plat.active .fav { opacity: 1; filter: none; }
+.tile-label { display: inline-flex; align-items: center; gap: 6px; }
+.chat-manage .p { display: inline-flex; }
+img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }

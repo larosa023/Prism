@@ -45,7 +45,8 @@ const DEFAULTS = {
   chatVisible: true,
   chatWidth: 340,           // px, drag the chat panel's edge
   sidebarWidth: 56,         // px, drag the sidebar's edge (wider shows names + live list)
-  lastView: 'multiview'
+  lastView: 'multiview',
+  favicons: {}              // each site's own icon, picked up from its tab
 };
 
 let file;

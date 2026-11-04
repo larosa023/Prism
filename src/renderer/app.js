@@ -28,6 +28,33 @@
   }
 
   const save = (patch) => prism.settings.set(patch).then((s) => (S = s));
+
+  // Site icons: each platform's own favicon (as shown on its browser tab).
+  // Uses the icon the site itself reports once its tab has loaded, and a
+  // favicon lookup before that. Falls back to the short text if offline.
+  const SITE_DOMAINS = { twitch: 'twitch.tv', youtube: 'youtube.com', tiktok: 'tiktok.com', kick: 'kick.com' };
+  const FALLBACK_TEXT = { twitch: 'TW', youtube: 'YT', tiktok: 'TT', kick: 'K' };
+  const iconUrl = (p) => (S.favicons || {})[p] || `https://www.google.com/s2/favicons?domain=${SITE_DOMAINS[p]}&sz=64`;
+  function siteIcon(p, cls = 'fav') {
+    const img = h('img', { class: cls, src: iconUrl(p), alt: PLAT_NAMES[p], 'data-fav-img': p, draggable: 'false' });
+    img.addEventListener('error', () => {
+      const t = h('span', { class: cls + ' fav-text p-' + p, text: FALLBACK_TEXT[p] });
+      img.replaceWith(t);
+    }, { once: true });
+    return img;
+  }
+  function paintSidebarIcons() {
+    for (const el of $$('.ic[data-fav]')) {
+      el.textContent = '';
+      el.append(siteIcon(el.dataset.fav));
+    }
+  }
+  function rememberFavicon(p, url) {
+    if (!/^https:\/\//.test(url) || (S.favicons || {})[p] === url) return;
+    S.favicons = { ...(S.favicons || {}), [p]: url };
+    save({ favicons: S.favicons });
+    for (const img of $$(`img[data-fav-img="${p}"]`)) img.src = url;
+  }
   const keyOf = (s) => s.platform + ':' + s.id;
 
   // =========================================================================
@@ -91,6 +118,10 @@
       if (platform === 'twitch') attrs.preload = info.twitchPreload; // ad handling on the full site too
       wv = h('webview', attrs);
       wv.addEventListener('did-navigate', onNav);
+      wv.addEventListener('page-favicon-updated', (e) => {
+        const url = (e.favicons || []).find((u) => /^https:/.test(u) && !/\.svg(\?|$)/i.test(u)) || (e.favicons || [])[0];
+        if (url) rememberFavicon(platform, url);
+      });
       wv.addEventListener('did-navigate-in-page', onNav);
       wv.addEventListener('dom-ready', onNav, { once: true });
       if (platform === 'youtube') wv.addEventListener('dom-ready', applyYouTubeRows);
@@ -224,7 +255,7 @@
     }
 
     const bar = h('div', { class: 'tile-bar' },
-      h('span', { class: 'tile-label' }, h('span', { class: 'p p-' + s.platform, text: PLAT_NAMES[s.platform].toUpperCase() }), s.label || s.id),
+      h('span', { class: 'tile-label', title: PLAT_NAMES[s.platform] }, siteIcon(s.platform, 'fav fav-sm'), s.label || s.id),
       h('div', { class: 'grow' }),
       extra,
       muteBtn,
@@ -655,7 +686,7 @@
       box.append(h('label', {},
         h('input', { type: 'checkbox', checked: !s.chatOff, onchange: (e) => setChatOff(k, !e.target.checked) }),
         s.label || s.id,
-        h('span', { class: 'p p-' + s.platform, text: PLAT_NAMES[s.platform] })));
+        h('span', { class: 'p', title: PLAT_NAMES[s.platform] }, siteIcon(s.platform, 'fav fav-sm'))));
     }
   }
   function toggleChatManage(e) {
@@ -1031,6 +1062,7 @@
   showView(S.lastView && S.lastView !== 'settings' ? S.lastView : 'multiview');
   refreshChatAuth();
   if (S.thirdPartyEmotes) loadEmotes();
+  paintSidebarIcons();
   applyPanelSizes();
   refreshFollowing();
   prism.updater.state().then(showUpdater);
