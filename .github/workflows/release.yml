@@ -36,7 +36,23 @@ jobs:
             git push origin "$v"
           fi
 
+      # Create the release up front, so electron-builder's parallel uploads
+      # all land in this one release instead of each making its own.
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          gh release view "$v" >/dev/null 2>&1 || gh release create "$v" --title "Prism $v" --generate-notes
+
       - name: Build and publish
         run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove duplicate releases
+        if: always()
+        run: node scripts/dedupe-releases.js
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
