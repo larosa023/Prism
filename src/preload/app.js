@@ -55,8 +55,10 @@ contextBridge.exposeInMainWorld('prism', {
   onAddStream: on('stream:add'),
   kick: { playback: (slug) => ipcRenderer.invoke('kick:playback', slug) },
   points: {
-    get: (login) => ipcRenderer.invoke('twitch:points', login),
-    claim: (channelId, claimId) => ipcRenderer.invoke('twitch:points-claim', channelId, claimId)
+    all: () => ipcRenderer.invoke('twitch:points-all'),
+    check: () => ipcRenderer.invoke('twitch:points-check'),
+    onUpdate: on('twitch:points-update'),
+    onClaimed: on('twitch:points-claimed')
   },
   mini: {
     open: (stream) => ipcRenderer.invoke('mini:open', stream),

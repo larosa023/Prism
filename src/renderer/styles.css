@@ -673,3 +673,9 @@ details.news-ver[open] summary::before { content: "▾"; }
 .ti-scene { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; color: #fff; flex-wrap: wrap; }
 .ti-scene-add { pointer-events: auto; border: 0; cursor: pointer; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 8px; }
 .tile.in-scene .tile-label::after { content: "• scene"; color: var(--accent-2); margin-left: 6px; font-weight: 700; font-size: 10px; }
+
+.points-pill { position: relative; }
+.points-pill.flash { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.points-pill.flash::after { content: attr(data-gain); position: absolute; left: 50%; top: -18px; transform: translateX(-50%);
+  font-size: 11px; font-weight: 800; color: var(--accent-2); animation: pp-rise 2.4s ease-out forwards; }
+@keyframes pp-rise { from { opacity: 1; transform: translate(-50%, 6px); } to { opacity: 0; transform: translate(-50%, -10px); } }

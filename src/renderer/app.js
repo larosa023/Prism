@@ -451,6 +451,7 @@
     renderStage();
     setChat(key);
     if (s.platform !== 'youtube') refreshStreamInfo();
+    if (s.platform === 'twitch') setTimeout(() => prism.points.check().catch(() => {}), 5000);
     markLive();
   }
 
@@ -1806,7 +1807,6 @@
   // =========================================================================
   const pointsEl = $('#points');
   const points = new Map(); // login -> { balance, channelId, claimId }
-  let claimBlockedNotified = false;
   const fmtPoints = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? Math.round(n / 1000) + 'K' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n));
   function paintPoints() {
     const ch = currentTwitchChannel();
@@ -1818,6 +1818,7 @@
     pointsEl.textContent = '◆ ' + fmtPoints(p.balance);
     pointsEl.classList.toggle('warn', !!lightweight);
     pointsEl.title = `${p.balance.toLocaleString()} channel points in #${ch}` +
+      (p.claimed ? `\nBonuses claimed automatically this session: +${p.claimed.toLocaleString()}` : '') +
       (lightweight ? `\nThe lightweight player doesn't earn points. Use "${PLAT_NAMES.twitch}'s player" from the stream's ⋯ menu to earn them.` : '');
   }
   pointsEl.addEventListener('click', () => {
@@ -1825,24 +1826,26 @@
     const s = streams.find((x) => x.platform === 'twitch' && x.id === ch);
     if (s && useNative(s)) setStreamPlayer(keyOf(s), 'embed'), toast(`${s.label || s.id} now uses Twitch's player and earns points.`);
   });
-  async function refreshPoints() {
-    if (!chat.signedIn) { pointsEl.hidden = true; return; }
-    for (const s of streams.filter((x) => x.platform === 'twitch')) {
-      const r = await prism.points.get(s.id).catch(() => null);
-      if (!r || !r.signedIn || r.unavailable || r.error) continue;
-      points.set(s.id, r);
-      if (r.claimId && S.autoClaimPoints && !r.claimBlocked) {
-        const c = await prism.points.claim(r.channelId, r.claimId).catch(() => null);
-        if (c?.ok) { r.balance = c.balance; r.claimId = null; }
-        else if (c?.blocked && !claimBlockedNotified) {
-          claimBlockedNotified = true;
-          toast("Twitch didn't allow an automatic points claim here. Claim the bonus on twitch.tv instead.");
-        }
-      }
-    }
+  // The claimer runs in the background (main process); this just shows it.
+  function absorbPoints(all) {
+    for (const [login, p] of Object.entries(all || {})) points.set(login, p);
     paintPoints();
   }
-  setInterval(refreshPoints, 60000);
+  async function refreshPoints() {
+    if (!chat.signedIn) { pointsEl.hidden = true; return; }
+    absorbPoints(await prism.points.all().catch(() => ({})));
+  }
+  prism.points.onUpdate(absorbPoints);
+  prism.points.onClaimed((c) => {
+    const p = points.get(c.login) || {};
+    points.set(c.login, { ...p, balance: c.balance ?? p.balance, claimed: c.total });
+    paintPoints();
+    if (currentTwitchChannel() === c.login) {
+      pointsEl.classList.add('flash');
+      pointsEl.dataset.gain = '+' + c.gained;
+      setTimeout(() => pointsEl.classList.remove('flash'), 2500);
+    }
+  });
 
   // =========================================================================
   // NoPixel tab: every NoPixel streamer. Live ones are found across Twitch's

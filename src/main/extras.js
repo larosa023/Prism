@@ -28,51 +28,7 @@ ipcMain.handle('kick:playback', async (_e, slug) => {
   }
 });
 
-// ---- Twitch channel points --------------------------------------------------
-const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-let claimBlocked = false; // Twitch refused automatic claims (it can require a browser check)
-
-async function twitchGql(query, variables) {
-  const ses = session.fromPartition('persist:twitch');
-  const [tok] = await ses.cookies.get({ url: 'https://www.twitch.tv', name: 'auth-token' }).catch(() => []);
-  if (!tok) return { signedIn: false };
-  const res = await ses.fetch('https://gql.twitch.tv/gql', {
-    method: 'POST',
-    headers: { 'Client-Id': CLIENT_ID, Authorization: 'OAuth ' + tok.value, 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ query, variables })
-  });
-  const json = await res.json().catch(() => ({}));
-  return { signedIn: true, data: json.data, errors: json.errors };
-}
-
-ipcMain.handle('twitch:points', async (_e, login) => {
-  try {
-    const r = await twitchGql(`query($login: String!) { channel(name: $login) { id
-      self { communityPoints { balance availableClaim { id } } } } }`, { login: String(login).toLowerCase() });
-    if (!r.signedIn) return { signedIn: false };
-    const ch = r.data?.channel;
-    const cp = ch?.self?.communityPoints;
-    if (!ch || !cp) return { signedIn: true, unavailable: true };
-    return { signedIn: true, channelId: ch.id, balance: cp.balance, claimId: cp.availableClaim?.id || null, claimBlocked };
-  } catch (e) {
-    return { error: e.message };
-  }
-});
-
-ipcMain.handle('twitch:points-claim', async (_e, channelId, claimId) => {
-  if (claimBlocked) return { blocked: true };
-  try {
-    const r = await twitchGql(`mutation($input: ClaimCommunityPointsInput!) {
-      claimCommunityPoints(input: $input) { currentPoints error { code } } }`, { input: { channelID: channelId, claimID: claimId } });
-    const out = r.data?.claimCommunityPoints;
-    if (out && !out.error) return { ok: true, balance: out.currentPoints };
-    const msg = JSON.stringify(r.errors || out?.error || '');
-    if (/integrity|failed integrity|unauthorized|forbidden/i.test(msg)) claimBlocked = true;
-    return { ok: false, blocked: claimBlocked, error: msg.slice(0, 120) };
-  } catch (e) {
-    return { ok: false, error: e.message };
-  }
-});
+// (Channel points moved to twitch-points.js.)
 
 // ---- Pop-out mini player ----------------------------------------------------
 const minis = new Map(); // key -> BrowserWindow

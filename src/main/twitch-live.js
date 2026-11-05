@@ -433,4 +433,4 @@ function init(context) {
   pollTimer = setInterval(poll, 90 * 1000);
 }
 
-module.exports = { init, fetchFollowing, streamInfo, pollNow: poll };
+module.exports = { init, fetchFollowing, streamInfo, pollNow: poll, gql, errText, ensureIntegrity, freshIntegrity };

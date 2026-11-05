@@ -1,6 +1,14 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.8.1',
+    date: 'Nov 5, 2026',
+    items: [
+      'Channel-point bonuses are claimed automatically in the background, every minute, for the Twitch streams in multi-view. If Twitch refuses Prism\'s claim, it clicks "Claim Bonus" on Twitch\'s own chat page instead, so it keeps working.',
+      'The points pill next to the chat box flashes +50 when a bonus is claimed, and its tooltip shows how much was claimed this session.'
+    ]
+  },
+  {
     version: '0.8.0',
     date: 'Nov 4, 2026',
     items: [

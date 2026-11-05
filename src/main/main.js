@@ -8,6 +8,7 @@ const updater = require('./updater');
 const twitchAds = require('./twitch-ads');
 require('./twitch-stream');
 const twitchLive = require('./twitch-live');
+const twitchPoints = require('./twitch-points');
 const extras = require('./extras');
 const npLocations = require('./np-locations');
 const hooks = require('./request-hooks');
@@ -377,6 +378,7 @@ app.whenReady().then(async () => {
   createWindow();
   extras.init({ send });
   npLocations.init({ send });
+  twitchPoints.init({ send });
   twitchLive.init({
     send,
     focus: () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } }
