@@ -1299,13 +1299,16 @@
     renderSideLive();
     list.textContent = '';
     if (!res.signedIn) {
+      if (res.error) list.append(h('div', { class: 'err-detail', text: res.error }));
       list.append(h('div', { class: 'chat-empty' }, 'Sign in on the ',
         h('a', { href: '#', text: 'Twitch tab', onclick: (e) => { e.preventDefault(); livePanel.hidden = true; showView('twitch'); } }),
         ' to see who you follow.'));
       return;
     }
     if (!res.live.length) {
-      list.append(h('div', { class: 'chat-empty', text: res.error ? "Couldn't load your follows. Try Refresh." : 'Nobody you follow is live right now.' }));
+      list.append(h('div', { class: 'chat-empty' },
+        res.error ? "Couldn't load your follows from Twitch. Try Refresh." : 'Nobody you follow is live right now.',
+        res.error ? h('div', { class: 'err-detail', text: 'Twitch said: ' + res.error }) : null));
       return;
     }
     for (const c of res.live) {

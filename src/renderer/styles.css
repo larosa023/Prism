@@ -476,3 +476,4 @@ img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }
 .points-pill { height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-3);
   color: var(--accent-2); font-weight: 700; font-size: 12px; cursor: default; flex: none; white-space: nowrap; }
 .points-pill.warn { color: var(--muted); cursor: pointer; }
+.err-detail { margin-top: 8px; font-size: 11px; color: #e5a06b; user-select: text; word-break: break-word; }
