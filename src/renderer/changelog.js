@@ -1,6 +1,11 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.8.2',
+    date: 'Nov 5, 2026',
+    items: ['Volume sliders (in the Mixer and on each stream) now move smoothly, in fine 1% steps, with a filled track that shows the level.']
+  },
+  {
     version: '0.8.1',
     date: 'Nov 5, 2026',
     items: [

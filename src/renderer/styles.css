@@ -679,3 +679,20 @@ details.news-ver[open] summary::before { content: "▾"; }
 .points-pill.flash::after { content: attr(data-gain); position: absolute; left: 50%; top: -18px; transform: translateX(-50%);
   font-size: 11px; font-weight: 800; color: var(--accent-2); animation: pp-rise 2.4s ease-out forwards; }
 @keyframes pp-rise { from { opacity: 1; transform: translate(-50%, 6px); } to { opacity: 0; transform: translate(-50%, -10px); } }
+
+/* ---- Smooth volume sliders ------------------------------------------------------ */
+.vol-slider { -webkit-appearance: none; appearance: none; height: 18px; background: transparent; cursor: pointer; --fill: 100%; }
+.vol-slider:focus { outline: none; }
+.vol-slider::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) 0 var(--fill), var(--track) var(--fill) 100%);
+}
+.vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -4.5px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--accent); box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  transition: transform .12s ease;
+}
+.vol-slider:hover::-webkit-slider-thumb, .vol-slider:active::-webkit-slider-thumb { transform: scale(1.18); }
+.mx-row.muted .vol-slider::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--muted) 0 var(--fill), var(--track) var(--fill) 100%); opacity: .6; }
+.mx-row.muted .vol-slider::-webkit-slider-thumb { border-color: var(--muted); }
+.mx-pct { transition: color .15s; }

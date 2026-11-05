@@ -236,9 +236,11 @@
       const quality = h('select', { class: 'tile-select', title: 'Quality', onchange: () => {
         s.quality = quality.value; player.setQuality(s.quality); persistStreams();
       } }, h('option', { value: 'auto', text: 'Auto' }));
-      const volume = h('input', { class: 'tile-volume', type: 'range', min: 0, max: 1, step: 0.05, value: s.volume ?? 1, title: 'Volume',
-        oninput: () => { s.volume = Number(volume.value); applyMute(t); if (s.muted && s.volume > 0) setMuted(key, false); },
-        onchange: () => persistStreams() });
+      const volume = volumeSlider(s, 'tile-volume', () => {
+        if (s.muted && s.volume > 0) setMuted(key, false);
+        else applyMute(t, { fromSlider: true });
+        if (!$('#mixer-panel').hidden) renderMixer();
+      });
       extra.append(volume, quality);
       // Rewind / go live / clip
       if (Number(S.rewindSeconds) > 0) {
@@ -319,7 +321,7 @@
   // What a stream sounds like: muted, "ducked" (quiet in the background
   // while another stream has the sound), or at its own volume.
   const duckLevel = () => Math.max(0.05, Math.min(0.6, Number(S.duckLevel) || 0.2));
-  function applyMute(t) {
+  function applyMute(t, opts = {}) {
     const st = t.stream;
     const ducked = !st.muted && st.ducked;
     t.muteBtn.textContent = st.muted ? '🔇' : ducked ? '🔉' : '🔊';
@@ -327,7 +329,8 @@
     t.mutedTag.textContent = st.muted ? 'Muted' : 'Quiet';
     t.setAudio(!!st.muted);
     t.setVol?.((st.volume ?? 1) * (ducked ? duckLevel() : 1));
-    if (typeof renderMixer === 'function' && !$('#mixer-panel').hidden) renderMixer();
+    if (!opts.fromSlider && typeof renderMixer === 'function' && !$('#mixer-panel').hidden) renderMixer();
+    syncSliders(t);
   }
   // Give one stream the sound; the others are muted or turned down,
   // depending on Settings → "Other streams".
@@ -471,6 +474,32 @@
     for (const t of tiles.values()) if (t.wv && t.wantVol != null && t.wantVol < 0.99) t.setVol(t.wantVol);
   }, 4000);
 
+  // ---- Smooth volume sliders ---------------------------------------------------
+  // Fine steps, a filled track, and at most one volume change per frame.
+  function volumeSlider(st, cls, onMove) {
+    const el = h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: st.volume ?? 1, class: 'vol-slider ' + cls, 'data-key': keyOf(st), title: 'Volume' });
+    const fill = () => el.style.setProperty('--fill', Math.round(Number(el.value) * 100) + '%');
+    fill();
+    let pending = false;
+    el.addEventListener('input', () => {
+      st.volume = Number(el.value);
+      fill();
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => { pending = false; onMove(); });
+    });
+    el.addEventListener('change', () => persistStreams());
+    return el;
+  }
+  function syncSliders(t) {
+    const key = keyOf(t.stream);
+    for (const el of document.querySelectorAll(`.vol-slider[data-key="${CSS.escape(key)}"]`)) {
+      if (document.activeElement === el) continue; // the one being dragged
+      el.value = t.stream.volume ?? 1;
+      el.style.setProperty('--fill', Math.round((t.stream.volume ?? 1) * 100) + '%');
+    }
+  }
+
   // ---- Volume mixer ------------------------------------------------------------
   const mixer = $('#mixer-panel');
   $('#mixer-btn').addEventListener('click', (e) => { e.stopPropagation(); mixer.hidden = !mixer.hidden; if (!mixer.hidden) renderMixer(); });
@@ -484,16 +513,31 @@
       const key = keyOf(st);
       const t = tiles.get(key);
       const ducked = !st.muted && st.ducked;
-      const slider = h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: st.volume ?? 1, class: 'mx-vol',
-        oninput: (e) => { st.volume = Number(e.target.value); if (st.muted && st.volume > 0) { st.muted = false; } if (t) applyMute(t); },
-        onchange: () => persistStreams() });
-      mixer.append(h('div', { class: 'mx-row' + (st.muted ? ' muted' : ducked ? ' ducked' : '') },
+      const pct = h('span', { class: 'mx-pct' });
+      const muteBtn = h('button', { class: 'icon-btn', onclick: () => setMuted(key, !st.muted) });
+      const row = h('div', { class: 'mx-row', 'data-key': key });
+      const slider = volumeSlider(st, 'mx-vol', () => {
+        if (st.muted && st.volume > 0) st.muted = false;
+        if (t) applyMute(t, { fromSlider: true });
+        paintRow();
+      });
+      // Update just this row while dragging, so the slider never gets rebuilt.
+      const paintRow = () => {
+        const d = !st.muted && st.ducked;
+        row.className = 'mx-row' + (st.muted ? ' muted' : d ? ' ducked' : '');
+        pct.textContent = st.muted ? 'off' : Math.round((st.volume ?? 1) * (d ? duckLevel() : 1) * 100) + '%';
+        muteBtn.textContent = st.muted ? '🔇' : d ? '🔉' : '🔊';
+        muteBtn.title = st.muted ? 'Unmute' : 'Mute';
+      };
+      paintRow();
+      mixer.append(row);
+      row.append(
         siteIcon(st.platform, 'fav fav-sm'),
         h('span', { class: 'mx-name', text: st.label || st.id }),
-        h('button', { class: 'icon-btn', title: st.muted ? 'Unmute' : 'Mute', text: st.muted ? '🔇' : ducked ? '🔉' : '🔊', onclick: () => setMuted(key, !st.muted) }),
+        muteBtn,
         slider,
-        h('span', { class: 'mx-pct', text: st.muted ? 'off' : Math.round((st.volume ?? 1) * (ducked ? duckLevel() : 1) * 100) + '%' }),
-        h('button', { class: 'btn mx-solo', title: 'Only this one at full volume', text: 'Solo', onclick: () => soloSound(key) })));
+        pct,
+        h('button', { class: 'btn mx-solo', title: 'Only this one at full volume', text: 'Solo', onclick: () => soloSound(key) }));
     }
     const seg = h('div', { class: 'seg' },
       ...[['mute', 'Muted'], ['duck', 'Quiet']].map(([v, label]) => h('button', { class: (S.backgroundAudio || 'mute') === v ? 'on' : '', text: label,
