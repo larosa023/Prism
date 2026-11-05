@@ -93,9 +93,87 @@ const errText = (r) => (r.errors || []).map((e) => e.message).filter(Boolean).jo
 
 // Twitch's live-follows list, asked a few ways: if one is refused, the next
 // is tried, ending with your whole follow list filtered to who's live.
+// ---- Reading follows from twitch.tv itself ---------------------------------
+// When Twitch refuses Prism's own requests, open your Following page in a
+// hidden window (signed in, muted) and read the list Twitch sends that page,
+// then close it. This works whenever twitch.tv itself works for you.
+function collectLive(node, out, seen, flags) {
+  if (!node || typeof node !== 'object') return;
+  if (Array.isArray(node)) { for (const x of node) collectLive(x, out, seen, flags); return; }
+  const add = (c) => {
+    if (!c.login || seen.has(c.login.toLowerCase())) return;
+    seen.add(c.login.toLowerCase());
+    out.push(c);
+  };
+  if (node.followedLiveUsers) {
+    flags.got = true;
+    const f = node.followedLiveUsers;
+    const nodes = f.nodes || (f.edges || []).map((e) => e && e.node);
+    for (const n of nodes) if (n && n.login && n.stream) add(toLive(n));
+  }
+  if (Array.isArray(node.personalSections)) {
+    for (const sec of node.personalSections) {
+      if (!/FOLLOW/i.test(String(sec?.type || sec?.title?.key || ''))) continue;
+      flags.got = true;
+      for (const it of sec.items || []) {
+        const u = it?.user, c = it?.content;
+        if (!u?.login || !c || c.viewersCount == null) continue;
+        add({
+          login: u.login.toLowerCase(), name: u.displayName || u.login, avatar: u.profileImageURL || '',
+          title: c.broadcaster?.broadcastSettings?.title || c.title || '', viewers: c.viewersCount || 0,
+          game: c.game?.displayName || c.game?.name || '', startedAt: c.createdAt || null
+        });
+      }
+    }
+  }
+  for (const v of Object.values(node)) if (v && typeof v === 'object') collectLive(v, out, seen, flags);
+}
+
+let sitePending = null;
+let siteCache = null; // { at, live }
+const FOLLOWS_PRELOAD = path.join(__dirname, '..', 'preload', 'twitch-follows.js');
+function followingFromSite() {
+  if (siteCache && Date.now() - siteCache.at < 3 * 60 * 1000) return Promise.resolve(siteCache.live);
+  if (sitePending) return sitePending;
+  sitePending = (async () => {
+    const w = new BrowserWindow({ show: false, width: 1280, height: 800, webPreferences: {
+      partition: 'persist:twitch', preload: FOLLOWS_PRELOAD, sandbox: true, contextIsolation: true, backgroundThrottling: false } });
+    w.webContents.setAudioMuted(true);
+    const live = [], seen = new Set(), flags = { got: false };
+    let settleTimer = null, done;
+    const finished = new Promise((r) => (done = r));
+    const onData = (e, text) => {
+      if (e.sender !== w.webContents) return;
+      try {
+        const before = flags.got;
+        collectLive(JSON.parse(text), live, seen, flags);
+        // Once the list has arrived, wait a moment for the rest, then stop.
+        if (flags.got && !before) settleTimer = setTimeout(done, 2500);
+      } catch {}
+    };
+    ipcMain.on('twitch:follows-data', onData);
+    try {
+      w.loadURL('https://www.twitch.tv/directory/following/live').catch(() => {});
+      await Promise.race([finished, new Promise((r) => setTimeout(r, 25000))]);
+    } finally {
+      ipcMain.removeListener('twitch:follows-data', onData);
+      clearTimeout(settleTimer);
+      if (!w.isDestroyed()) w.destroy();
+      sitePending = null;
+    }
+    if (!flags.got) return null;
+    live.sort((a, b) => b.viewers - a.viewers);
+    siteCache = { at: Date.now(), live };
+    return live;
+  })();
+  return sitePending;
+}
+
 let lastFollowError = '';
+let directBlockedAt = 0; // when Twitch last refused all direct requests
 let workingAttempt = 0; // remember which way worked, and try it first next time
 async function fetchFollowing() {
+  if (!(await authToken())) return { signedIn: false, live: [] };
   const login = await myLogin();
   const LIVE = `login displayName profileImageURL(width: 70) stream { ${STREAM_FIELDS} }`;
   const pagedFollows = (root, vars) => async (integ) => {
@@ -147,10 +225,17 @@ async function fetchFollowing() {
     }
     return null;
   };
-  // Plain requests first; if Twitch refuses them all, add its integrity header.
-  let out = await run(!!freshIntegrity());
-  if (!out && (await ensureIntegrity())) out = await run(true);
-  if (out) return out;
+  // Direct requests first (skipped for 30 minutes after Twitch refused them
+  // all), then the integrity header, then reading twitch.tv's own page.
+  let out = null;
+  if (Date.now() - directBlockedAt > 30 * 60 * 1000) {
+    out = await run(!!freshIntegrity());
+    if (!out && freshIntegrity()) out = await run(true);
+    if (out) return out;
+    directBlockedAt = Date.now();
+  }
+  const fromSite = await followingFromSite();
+  if (fromSite) { lastFollowError = ''; return { signedIn: true, live: fromSite, via: 'site' }; }
   lastFollowError = [...new Set(problems)].join(' | ').slice(0, 300);
   console.warn('[prism] follows failed:', lastFollowError);
   return { signedIn: true, live: [], error: lastFollowError };
