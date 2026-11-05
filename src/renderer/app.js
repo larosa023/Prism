@@ -68,10 +68,11 @@
     currentView = name;
     $$('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + name));
     $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
-    $('#add-form').style.visibility = name === 'multiview' ? 'visible' : 'hidden';
+    $('#add-form').style.visibility = name === 'multiview' || name === 'rp' ? 'visible' : 'hidden';
     if (Browse[name]) Browse[name].show();
     if (prev && Browse[prev]) Browse[prev].hide();
     if (name === 'settings') renderSettings();
+    if (name === 'rp') RP.show(); else RP.hide();
     if (prev === 'twitch') refreshChatAuth(); // you may have just signed in
     if (name === 'multiview') requestAnimationFrame(layout);
     save({ lastView: name === 'settings' ? S.lastView : name });
@@ -1655,6 +1656,146 @@
     paintPoints();
   }
   setInterval(refreshPoints, 60000);
+
+  // =========================================================================
+  // RP servers tab: who's live on NoPixel (and other GTA RP servers) now.
+  // Streams are matched by the server's name in their title or tags, the
+  // same way RP directories find them.
+  // =========================================================================
+  const RP_SERVERS = [
+    { id: 'nopixel', name: 'NoPixel', match: /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i },
+    { id: 'onx', name: 'ONX', match: /\bonx\b/i },
+    { id: 'prodigy', name: 'Prodigy', match: /prodigy/i },
+    { id: 'eclipse', name: 'Eclipse', match: /eclipse\s*rp|\beclipse\b/i },
+    { id: 'custom', name: 'Custom…', match: null }
+  ];
+  const RP = (() => {
+    let data = [], fetchedAt = 0, timer = null, loading = false, error = '';
+    const server = () => RP_SERVERS.find((x) => x.id === S.rpServer) || RP_SERVERS[0];
+    const customRegex = () => {
+      const words = (S.rpCustom || '').split(',').map((w) => w.trim()).filter(Boolean);
+      if (!words.length) return null;
+      return new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')).join('|'), 'i');
+    };
+    const matcher = () => (server().id === 'custom' ? customRegex() : server().match);
+
+    // "Swan DeLeur | NoPixel V | !socials" -> "Swan DeLeur"
+    function character(title, re) {
+      const parts = title.split(/\s[|•·—–-]\s|\s*\|\s*/).map((p) => p.replace(/[\[\]()]/g, '').trim()).filter(Boolean);
+      for (const p of parts) {
+        if (re && re.test(p)) continue;
+        if (/[!@#]|https?:|\b(day|ep|episode|sub|giveaway|drops|rp|gta|nopixel|stream|live)\b/i.test(p)) continue;
+        if (p.length > 28 || p.split(/\s+/).length > 4) continue;
+        if (!/^[\p{Lu}]/u.test(p)) continue;
+        return p;
+      }
+      return '';
+    }
+
+    function renderServers() {
+      const box = $('#rp-servers');
+      box.textContent = '';
+      for (const sv of RP_SERVERS) {
+        box.append(h('button', { class: 'rp-server' + (sv.id === server().id ? ' on' : ''), text: sv.name, onclick: () => {
+          save({ rpServer: sv.id }).then(() => { render(); if (sv.id === 'custom') $('#rp-custom').focus(); });
+          S.rpServer = sv.id;
+          render();
+        } }));
+      }
+      $('#rp-custom-row').hidden = server().id !== 'custom';
+      $('#rp-name').textContent = server().id === 'custom' ? (S.rpCustom ? `"${S.rpCustom}"` : 'Custom search') : server().name;
+    }
+
+    function render() {
+      renderServers();
+      const grid = $('#rp-grid');
+      grid.textContent = '';
+      const re = matcher();
+      if (error && !data.length) {
+        grid.append(h('div', { class: 'rp-empty' }, "Couldn't load live streams from Twitch.", h('div', { class: 'err-detail', text: 'Twitch said: ' + error })));
+        $('#rp-stats').textContent = '';
+        return;
+      }
+      if (!fetchedAt) { grid.append(h('div', { class: 'rp-empty', text: 'Loading who\'s live…' })); return; }
+      if (!re) { grid.append(h('div', { class: 'rp-empty', text: 'Type the words that appear in stream titles for your server, then Search.' })); $('#rp-stats').textContent = ''; return; }
+      const q = $('#rp-search').value.trim().toLowerCase();
+      const followed = new Set(followingCache.map((c) => c.login.toLowerCase()));
+      let list = data.filter((x) => re.test(x.title) || x.tags.some((t) => re.test(t)));
+      const total = list.length, viewers = list.reduce((a, x) => a + x.viewers, 0);
+      list = list.map((x) => {
+        const c = character(x.title, re);
+        // Skip it when the "character" is just the streamer's own name.
+        return { ...x, char: c && c.toLowerCase().replace(/\s+/g, '') !== x.login ? c : '' };
+      });
+      if ($('#rp-following').checked) list = list.filter((x) => followed.has(x.login));
+      if (q) list = list.filter((x) => x.login.includes(q) || x.name.toLowerCase().includes(q) || x.title.toLowerCase().includes(q) || x.char.toLowerCase().includes(q));
+      const sort = $('#rp-sort').value;
+      const t = (x) => (x.startedAt ? new Date(x.startedAt).getTime() : 0);
+      list.sort(sort === 'newest' ? (a, b) => t(b) - t(a) : sort === 'longest' ? (a, b) => t(a) - t(b) : sort === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.viewers - a.viewers);
+
+      $('#rp-stats').textContent = `${total} live · ${fmtViewers(viewers)} watching`;
+      $('#rp-updated').textContent = loading ? 'Updating…' : fetchedAt ? 'Updated ' + new Date(fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      if (!list.length) {
+        grid.append(h('div', { class: 'rp-empty', text: total ? 'No streams match your filters.' : `Nobody is live on ${server().name} right now.` }));
+        return;
+      }
+      const inView = new Set(streams.filter((x) => x.platform === 'twitch').map((x) => x.id));
+      const bust = Math.floor(Date.now() / 120000);
+      const frag = document.createDocumentFragment();
+      for (const x of list) {
+        const added = inView.has(x.login);
+        const card = h('div', { class: 'rp-card' + (added ? ' added' : ''), title: x.title },
+          h('div', { class: 'rp-thumb' },
+            h('img', { src: `https://static-cdn.jtvnw.net/previews-ttv/live_user_${x.login}-440x248.jpg?t=${bust}`, alt: '', loading: 'lazy' }),
+            h('span', { class: 'rp-live', text: fmtViewers(x.viewers) }),
+            x.startedAt ? h('span', { class: 'rp-up', text: fmtUptime(x.startedAt) }) : null,
+            h('span', { class: 'rp-add', text: added ? '✓ In multi-view' : '+ Multi-view' })),
+          h('div', { class: 'rp-meta' },
+            x.avatar ? h('img', { class: 'rp-av', src: x.avatar, alt: '', loading: 'lazy' }) : h('span', { class: 'rp-av' }),
+            h('div', { class: 'rp-text' },
+              h('div', { class: 'rp-who' }, h('b', { text: x.name }), followed.has(x.login) ? h('span', { class: 'rp-fol', text: 'Following' }) : null),
+              x.char ? h('div', { class: 'rp-char', text: 'as ' + x.char }) : null,
+              h('div', { class: 'rp-t', text: x.title }))));
+        card.addEventListener('click', () => {
+          if (added) { setChat('twitch:' + x.login); showView('multiview'); return; }
+          addStream({ platform: 'twitch', id: x.login, label: x.name });
+          toast(`Added ${x.name} to multi-view.`);
+          render();
+        });
+        frag.append(card);
+      }
+      grid.append(frag);
+    }
+
+    async function load(force) {
+      if (loading) return;
+      loading = true;
+      render();
+      const r = await prism.twitchCategoryStreams('Grand Theft Auto V', force).catch((e) => ({ streams: [], error: String(e) }));
+      loading = false;
+      error = r.error || '';
+      if (r.streams?.length || !data.length) { data = r.streams || []; fetchedAt = r.at || Date.now(); }
+      render();
+    }
+
+    $('#rp-search').addEventListener('input', render);
+    $('#rp-sort').addEventListener('change', () => { save({ rpSort: $('#rp-sort').value }); render(); });
+    $('#rp-following').addEventListener('change', render);
+    $('#rp-refresh').addEventListener('click', () => load(true));
+    $('#rp-custom-save').addEventListener('click', () => { S.rpCustom = $('#rp-custom').value.trim(); save({ rpCustom: S.rpCustom }); render(); });
+    $('#rp-custom').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#rp-custom-save').click(); });
+
+    return {
+      show() {
+        $('#rp-sort').value = S.rpSort || 'viewers';
+        $('#rp-custom').value = S.rpCustom || '';
+        if (Date.now() - fetchedAt > 60000) load(false); else render();
+        clearInterval(timer);
+        timer = setInterval(() => load(true), 120000); // refresh every 2 minutes while open
+      },
+      hide() { clearInterval(timer); timer = null; }
+    };
+  })();
 
   // =========================================================================
   // Resizable sidebar and chat

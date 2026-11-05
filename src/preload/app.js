@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('prism', {
   twitchFollowing: () => ipcRenderer.invoke('twitch:following'),
   onFollowingUpdate: on('twitch:following-update'),
   twitchStreamInfo: (logins) => ipcRenderer.invoke('twitch:stream-info', logins),
+  twitchCategoryStreams: (game, force) => ipcRenderer.invoke('twitch:category-streams', game, force),
   onAddStream: on('stream:add'),
   kick: { playback: (slug) => ipcRenderer.invoke('kick:playback', slug) },
   points: {

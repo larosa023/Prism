@@ -266,6 +266,46 @@ async function streamInfo(logins) {
   }
 }
 
+// ---- RP directory: live streams in a category (GTA V by default) ----------
+const categoryCache = new Map(); // game -> { at, streams }
+async function categoryStreams(game = 'Grand Theft Auto V', force = false) {
+  const hit = categoryCache.get(game);
+  if (hit && !force && Date.now() - hit.at < 60 * 1000) return { streams: hit.streams, at: hit.at };
+  const streams = [];
+  let after = null, error = '';
+  for (let page = 0; page < 12; page++) {
+    let r;
+    try {
+      r = await gql(`query($name: String!, $after: Cursor) { game(name: $name) { streams(first: 100, after: $after) {
+        edges { cursor node { title viewersCount createdAt freeformTags { name }
+          broadcaster { login displayName profileImageURL(width: 70) } } }
+        pageInfo { hasNextPage } } } }`, { name: game, after }, false);
+    } catch (e) { error = e.message; break; }
+    const conn = r.data?.game?.streams;
+    if (!conn) { error = errText(r) || 'no data'; break; }
+    for (const e of conn.edges || []) {
+      const n = e?.node;
+      if (!n?.broadcaster?.login) continue;
+      streams.push({
+        login: n.broadcaster.login.toLowerCase(),
+        name: n.broadcaster.displayName || n.broadcaster.login,
+        avatar: n.broadcaster.profileImageURL || '',
+        title: n.title || '',
+        viewers: n.viewersCount || 0,
+        startedAt: n.createdAt || null,
+        tags: (n.freeformTags || []).map((t) => t.name)
+      });
+    }
+    // Streams come most-watched first; stop once they're tiny.
+    const last = conn.edges?.[conn.edges.length - 1]?.node;
+    if (!conn.pageInfo?.hasNextPage || !conn.edges?.length || (last && last.viewersCount < 3)) break;
+    after = conn.edges[conn.edges.length - 1].cursor;
+  }
+  if (!streams.length && error) return { streams: [], error };
+  categoryCache.set(game, { at: Date.now(), streams });
+  return { streams, at: Date.now() };
+}
+
 // ---- Go-live alerts -------------------------------------------------------
 let known = null;        // logins live at the last check (null = not checked yet)
 let pollTimer = null;
@@ -314,6 +354,7 @@ function init(context) {
   watchTwitchHeaders();
   ipcMain.handle('twitch:following', () => fetchFollowing());
   ipcMain.handle('twitch:stream-info', (_e, logins) => streamInfo(logins));
+  ipcMain.handle('twitch:category-streams', (_e, game, force) => categoryStreams(game, force));
   // First check seeds the list quietly, so you don't get alerts for everyone
   // who was already live when Prism opened.
   setTimeout(poll, 8000);
