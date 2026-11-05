@@ -8,6 +8,7 @@ const on = (channel) => (cb) => {
 
 contextBridge.exposeInMainWorld('prism', {
   info: () => ipcRenderer.invoke('app:info'),
+  setTheme: (name) => ipcRenderer.invoke('theme:set', name),
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch)

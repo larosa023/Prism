@@ -1331,7 +1331,44 @@
   $('#filter-lists').append(...lists.map((l) =>
     h('label', {}, h('input', { type: 'checkbox', 'data-list': l.id }), l.name)));
 
+  // ---- Themes ---------------------------------------------------------------
+  const THEMES = [
+    ['midnight', 'Midnight', ['#0e0e12', '#15151b', '#9b6bff']],
+    ['oled', 'OLED black', ['#000000', '#0a0a0c', '#9b6bff']],
+    ['slate', 'Slate', ['#11151c', '#171c25', '#4f8cff']],
+    ['forest', 'Forest', ['#0d1210', '#131a17', '#34b878']],
+    ['sunset', 'Sunset', ['#140f0e', '#1c1514', '#ff7a45']],
+    ['rose', 'Rose', ['#130e13', '#1b141b', '#ff5fa8']],
+    ['light', 'Light', ['#f4f3f8', '#ffffff', '#7c4dff']]
+  ];
+  function renderThemes() {
+    const box = $('#themes');
+    box.textContent = '';
+    for (const [id, name, [bg, panel, accent]] of THEMES) {
+      box.append(h('button', { class: 'theme-opt' + ((S.theme || 'midnight') === id ? ' on' : ''), title: name, onclick: () => setTheme(id) },
+        (() => {
+          const prev = h('span', { class: 'theme-prev' });
+          prev.style.background = bg;
+          const side = h('i'); side.style.background = panel;
+          const main = h('i'); main.style.background = panel; main.style.boxShadow = `inset 0 -10px 0 ${accent}`;
+          const chat = h('i'); chat.style.background = panel;
+          prev.append(side, main, chat);
+          return prev;
+        })(),
+        h('span', { class: 'theme-name', text: name })));
+    }
+  }
+  async function setTheme(id) {
+    S.theme = id;
+    document.documentElement.dataset.theme = id;
+    await prism.setTheme(id);
+    renderThemes();
+    // Chat name colors are tuned for the background, so repaint visible names.
+    for (const el of $$('.msg .name')) el.style.color = PrismChat.recolor(el.style.color);
+  }
+
   function renderSettings() {
+    renderThemes();
     $$('[data-setting]').forEach((el) => {
       const v = S[el.dataset.setting];
       if (el.type === 'checkbox') el.checked = !!v;

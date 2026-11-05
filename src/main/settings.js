@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULTS = {
+  // Look
+  theme: 'midnight',        // midnight, oled, slate, forest, sunset, rose, light
+
   // Platforms
   showKick: false,          // Kick is hidden until turned on in Settings
 

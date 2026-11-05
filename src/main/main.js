@@ -38,6 +38,18 @@ app.userAgentFallback = CHROME_UA;
 // Lighter on memory: don't keep a spare renderer process warm.
 app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess,CalculateNativeWinOcclusion');
 
+// Window and title-bar button colors for each theme.
+const THEMES = {
+  midnight: { bg: '#0e0e12', symbol: '#c9c4d6' },
+  oled: { bg: '#000000', symbol: '#c9c4d6' },
+  slate: { bg: '#11151c', symbol: '#c3cad6' },
+  forest: { bg: '#0d1210', symbol: '#c4d1c8' },
+  sunset: { bg: '#140f0e', symbol: '#d8c9c4' },
+  rose: { bg: '#130e13', symbol: '#d8c6d4' },
+  light: { bg: '#f4f3f8', symbol: '#3a3646' }
+};
+const themeColors = () => THEMES[settings.get().theme] || THEMES.midnight;
+
 let win = null;
 if (process.platform === 'win32') app.setAppUserModelId('com.larosa.prism');
 
@@ -80,11 +92,11 @@ function createWindow() {
     y: s.bounds?.y,
     minWidth: 900,
     minHeight: 560,
-    backgroundColor: '#0e0e12',
+    backgroundColor: themeColors().bg,
     title: 'Prism',
     icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#0e0e12', symbolColor: '#c9c4d6', height: 36 },
+    titleBarOverlay: { color: themeColors().bg, symbolColor: themeColors().symbol, height: 36 },
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'app.js'),
@@ -110,7 +122,7 @@ function createWindow() {
   win.on('resize', saveBounds);
   win.on('move', saveBounds);
 
-  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'), { query: { theme: settings.get().theme || 'midnight' } });
 
   // Keep the app window itself from navigating anywhere.
   win.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -178,6 +190,16 @@ app.on('web-contents-created', (_e, contents) => {
 const ADBLOCK_KEYS = ['filterLists', 'customFilters', 'allowlist'];
 
 ipcMain.handle('settings:get', () => settings.get());
+ipcMain.handle('theme:set', (_e, name) => {
+  if (!THEMES[name]) return false;
+  settings.set({ theme: name });
+  const c = THEMES[name];
+  if (win && !win.isDestroyed()) {
+    win.setBackgroundColor(c.bg);
+    try { win.setTitleBarOverlay({ color: c.bg, symbolColor: c.symbol, height: 36 }); } catch {}
+  }
+  return true;
+});
 ipcMain.handle('settings:set', async (_e, patch) => {
   const s = settings.set(patch);
   if ('adblockEnabled' in patch) adblock.setEnabled(s.adblockEnabled);

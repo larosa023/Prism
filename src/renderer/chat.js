@@ -179,23 +179,36 @@
 
   // Make names readable on a dark background.
   const colorCache = new Map();
+  const isLight = () => document.documentElement.dataset.theme === 'light';
   function readable(hex, nick) {
+    const light = isLight();
     if (!hex) {
       let h = 0;
       for (const c of nick) h = (h * 31 + c.charCodeAt(0)) % 360;
-      return `hsl(${h} 70% 68%)`;
+      return light ? `hsl(${h} 70% 36%)` : `hsl(${h} 70% 68%)`;
     }
-    if (colorCache.has(hex)) return colorCache.get(hex);
+    const ck = hex + (light ? 'L' : 'D');
+    if (colorCache.has(ck)) return colorCache.get(ck);
     const n = parseInt(hex.slice(1), 16);
     let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
     const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (lum < 110) {
+    if (!light && lum < 110) {
       const k = 110 / Math.max(lum, 20);
       r = Math.min(255, r * k + 50); g = Math.min(255, g * k + 50); b = Math.min(255, b * k + 50);
+    } else if (light && lum > 140) {
+      const k = 120 / lum; // darken bright colors on a white background
+      r *= k; g *= k; b *= k;
     }
     const out = `rgb(${r | 0},${g | 0},${b | 0})`;
-    colorCache.set(hex, out);
+    colorCache.set(ck, out);
     return out;
+  }
+  // Re-tune an already-shown name color after a theme switch.
+  function recolor(css) {
+    const m = String(css).match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!m) return css;
+    const hex = '#' + [m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, '0')).join('');
+    return readable(hex, '');
   }
 
   function emoteImg(url, name) {
@@ -296,5 +309,5 @@
     return el;
   }
 
-  window.PrismChat = { TwitchChat, globalEmotes, roomEmotes, renderMessage, parseLine };
+  window.PrismChat = { TwitchChat, globalEmotes, roomEmotes, renderMessage, parseLine, recolor };
 })();

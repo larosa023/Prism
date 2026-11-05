@@ -24,6 +24,7 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Stays signed in**: each platform has its own saved session. You sign in on that platform's tab, and you can sign out from Settings.
 - **Platform tabs**: full Twitch, YouTube, TikTok and Kick sites. Use **+ Multi-view** on any channel or video page. Idle tabs unload after 2 minutes to free memory, unless they're playing sound.
 - **Kick toggle**: Kick stays hidden until you turn on *Settings → Platforms → Show Kick*.
+- **Themes**: Midnight, OLED black, Slate, Forest, Sunset, Rose and Light (*Settings → Theme*). Chat name colors adjust so they stay readable.
 - **Built-in updater**: checks GitHub Releases, downloads in the background, and installs on restart.
 
 ## Adding streams
