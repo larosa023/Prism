@@ -52,6 +52,9 @@ contextBridge.exposeInMainWorld('prism', {
   nopixelAdd: (login) => ipcRenderer.invoke('nopixel:add', login),
   nopixelLocate: (logins) => ipcRenderer.invoke('nopixel:locate', logins),
   onNopixelLocation: on('nopixel:location'),
+  onNopixelProgress: on('nopixel:progress'),
+  onNopixelLocateStatus: on('nopixel:locate-status'),
+  nopixelLocateStatus: () => ipcRenderer.invoke('nopixel:locate-status'),
   onAddStream: on('stream:add'),
   kick: { playback: (slug) => ipcRenderer.invoke('kick:playback', slug) },
   points: {

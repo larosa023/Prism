@@ -95,14 +95,21 @@ function hudImage(img, box) {
 
 // Where the HUD text sits: beside the minimap, top-right. A wider area is
 // tried if the usual spot doesn't read (streams laid out differently).
-const BOXES = [{ x: 0.78, y: 0.22, w: 0.22, h: 0.21 }, { x: 0.66, y: 0.10, w: 0.34, h: 0.42 }];
+// The last one is the top-left corner, where NoPixel shows a property's
+// address ("192 POPULAR ST, LA MESA") while you're in a house.
+const BOXES = [{ x: 0.78, y: 0.22, w: 0.22, h: 0.21 }, { x: 0.66, y: 0.10, w: 0.34, h: 0.42 }, { x: 0, y: 0, w: 0.32, h: 0.09 }];
 
-async function locate(login) {
+async function preview(login) {
   const url = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${login}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}`;
   const res = await net.fetch(url, { cache: 'no-store' });
   if (!res.ok) return null;
   const img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()));
-  if (img.isEmpty()) return null;
+  return img.isEmpty() ? null : img;
+}
+
+async function locate(login, imgJob) {
+  const img = await (imgJob || preview(login));
+  if (!img) return null;
   const w = await ocrWorker();
   for (const box of BOXES) {
     const { data } = await w.recognize(hudImage(img, box));
@@ -132,16 +139,28 @@ function scheduleIdleShutdown() {
   }, 60 * 1000);
 }
 
+// Progress for the Areas view: how many of this round are read so far.
+let round = { total: 0, done: 0, found: 0, error: '' };
+const status = () => ({ ...round, running, left: queue.length });
+const fresh = (login) => { const p = results.get(login); return p && Date.now() - p.at < 4 * 60 * 1000; };
+
 async function pump() {
   if (running) return;
   running = true;
   clearTimeout(idleTimer);
+  let next = null; // the next preview, downloaded while this one is read
   while (queue.length) {
     const login = queue.shift();
     const prev = results.get(login);
-    if (prev && Date.now() - prev.at < 4 * 60 * 1000) continue;
+    if (fresh(login)) continue;
+    const job = next && next.login === login ? next.job : preview(login).catch(() => null);
+    const upcoming = queue.find((l) => !fresh(l));
+    next = upcoming ? { login: upcoming, job: preview(upcoming).catch(() => null) } : null;
     try {
-      const r = await locate(login);
+      const r = await locate(login, job);
+      round.done++;
+      if (r?.area) round.found++;
+      round.error = '';
       if (r) {
         // Keep the last known area if this preview couldn't be read.
         const keep = !r.area && prev?.area ? { area: prev.area, region: prev.region, at: prev.at, stale: true } : { ...r, at: Date.now() };
@@ -149,10 +168,17 @@ async function pump() {
         send('nopixel:location', { login, ...keep });
       }
     } catch (e) {
-      console.warn('[prism] area reading failed', login, e.message);
+      round.done++;
+      round.error = e.message || String(e);
+      console.warn('[prism] area reading failed', login, round.error);
+      // The reader itself didn't start: stop this round rather than fail
+      // the same way for everyone.
+      if (!workerPromise) { queue = []; }
     }
+    send('nopixel:locate-status', status());
   }
   running = false;
+  send('nopixel:locate-status', status());
   scheduleIdleShutdown();
 }
 
@@ -161,11 +187,15 @@ function init(ctx) {
   ipcMain.handle('nopixel:locate', (_e, logins) => {
     const want = (logins || []).map((l) => String(l).toLowerCase()).filter((l) => /^\w{2,25}$/.test(l));
     const known = new Set(queue);
-    for (const l of want) if (!known.has(l)) queue.push(l);
+    const add = want.filter((l) => !known.has(l) && !fresh(l));
+    if (!running && !queue.length) round = { total: 0, done: 0, found: 0, error: round.error };
+    round.total += add.length;
+    queue.push(...add);
     pump();
     return Object.fromEntries([...results].filter(([l]) => want.includes(l)));
   });
   ipcMain.handle('nopixel:regions', () => Object.keys(REGIONS));
+  ipcMain.handle('nopixel:locate-status', () => status());
 }
 
 module.exports = { init, matchZone, hudImage, REGIONS };

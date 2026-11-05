@@ -609,6 +609,11 @@ img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }
 .rp-unknown { display: flex; flex-wrap: wrap; gap: 6px; }
 .rp-unknown span { font-size: 12px; padding: 3px 8px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--line); color: var(--muted); }
 .rp-note { margin: 10px 0 0; }
+.rp-locstatus { margin: 6px 0 4px; font-size: 12px; color: var(--muted); }
+.rp-locstatus:empty { display: none; }
+.rp-locstatus.err { color: #e5534b; }
+.rp-warn { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--bg-2); border: 1px solid var(--line); border-left: 3px solid #d29922; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
 
 /* ---- Sidebar reorder + bell ---------------------------------------------- */
 .nav-tabs { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; }

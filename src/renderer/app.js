@@ -1924,6 +1924,8 @@
   // =========================================================================
   const RP = (() => {
     let live = [], offline = [], fetchedAt = 0, timer = null, loading = false, error = '';
+    let scan = { scanned: 0, partial: false, sources: null }, scanning = 0; // last full search, and progress of the current one
+    let locStatus = null; // area reading progress
     let view = 'streamers';
     const locations = new Map(); // login -> { area, region, at, stale }
     const NP = /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i;
@@ -1937,6 +1939,8 @@
         if (/[!@#]|https?:|\b(day|ep|episode|sub|giveaway|drops|rp|gta|nopixel|stream|live)\b/i.test(p)) continue;
         if (p.length > 28 || p.split(/\s+/).length > 4 || !/^[\p{Lu}]/u.test(p)) continue;
         if (p.toLowerCase().replace(/\s+/g, '') === login) continue;
+        // Crew tags and server names, not characters: "SBS", "CARBON", "ResonantRP", "GTARP Week".
+        if (/^[A-Z0-9]{2,6}$/.test(p) || /rp\b|\bweek\b|\bpov\b|\bwl\b|server|\d\.\d/i.test(p)) continue;
         return p;
       }
       return '';
@@ -2100,12 +2104,12 @@
       const keepScroll = $('#view-rp').scrollTop;
       body.textContent = '';
       $$('#rp-view button').forEach((b) => b.classList.toggle('on', b.dataset.v === view));
-      $('#rp-updated').textContent = loading ? (fetchedAt ? 'Updating…' : 'Searching Twitch…') : fetchedAt ? 'Updated ' + new Date(fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      paintUpdated();
       if (error && !live.length && !offline.length) {
         body.append(h('div', { class: 'rp-empty' }, "Couldn't load live streams from Twitch.", h('div', { class: 'err-detail', text: 'Twitch said: ' + error })));
         return;
       }
-      if (!fetchedAt) { body.append(h('div', { class: 'rp-empty', text: 'Finding everyone live on NoPixel…' })); return; }
+      if (!fetchedAt) { body.append(h('div', { class: 'rp-empty', id: 'rp-first', text: firstText() })); return; }
 
       const q = $('#rp-search').value.trim().toLowerCase();
       const onlyFollowing = $('#rp-following').checked;
@@ -2114,6 +2118,12 @@
       const located = live.filter((x) => locations.get(x.login)?.area).length;
       $('#rp-stats').textContent = `${live.length} live · ${fmtViewers(live.reduce((a, x) => a + x.viewers, 0))} watching` +
         (offline.length ? ` · ${offline.length} offline` : '') + (located ? ` · ${located} located` : '');
+      const src = scan.sources;
+      $('#rp-stats').title = scan.scanned ? `Checked all ${scan.scanned.toLocaleString()} live GTA V streams on Twitch.` +
+        (src ? `\n${src.title} say NoPixel in their title, ${src.tag} in their tags, and ${src.known} are streamers seen on NoPixel before (or that you follow or added).` : '') +
+        (src?.otherServer ? `\n${src.otherServer} usual NoPixel streamers are left out because their title names another server.` : '') : '';
+      if (scan.partial) body.append(h('div', { class: 'rp-warn' }, "Twitch only showed Prism part of the GTA V directory this time, so some streamers may be missing. ",
+        h('button', { class: 'linkish', text: 'Try again', onclick: () => load(true) })));
       const L = sorted(live.map((x) => ({ ...x, char: character(x.title, x.login) })).filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login))));
       const bust = Math.floor(Date.now() / 120000);
 
@@ -2162,7 +2172,8 @@
         if (!byArea.has(key)) byArea.set(key, { region: l.region, area: l.area, people: [] });
         byArea.get(key).people.push(x);
       }
-      body.append(h('p', { class: 'muted small rp-note', text: "Areas are read from each stream's HUD (the street name by the minimap) in its Twitch preview, which updates every few minutes. They're estimates, and streams with the HUD hidden show as unknown." }));
+      body.append(h('p', { class: 'muted small rp-note', text: "Areas are read from each stream's HUD (the street name by the minimap) in its Twitch preview, which updates every few minutes. They're estimates, and streams with the HUD hidden (a phone, map or menu open) show as unknown." }));
+      body.append(h('div', { class: 'rp-locstatus', id: 'rp-locstatus', text: locText() }));
       for (const region of REGION_ORDER) {
         const areas = [...byArea.values()].filter((a) => a.region === region).sort((a, b) => b.people.length - a.people.length);
         if (!areas.length) continue;
@@ -2189,23 +2200,51 @@
         body.append(h('h2', { class: 'rp-section', text: `Location unknown · ${unknown.length}` }));
         body.append(h('div', { class: 'rp-unknown' }, ...unknown.map((x) => h('span', { title: x.title, text: x.name }))));
       }
-      if (!byArea.size) body.append(h('div', { class: 'rp-empty', text: 'Reading where everyone is… this takes a minute or two the first time.' }));
+      if (!byArea.size && !locStatus?.error) body.append(h('div', { class: 'rp-empty', text: 'Reading where everyone is… this takes a minute or two the first time.' }));
     }
 
     async function load(force) {
       if (loading) return;
       loading = true;
       render();
+      scanning = 0;
       const r = await prism.nopixelStreams(force).catch((e) => ({ live: [], offline: [], error: String(e) }));
       loading = false;
       error = r.error || '';
-      if (r.live?.length || r.offline?.length || !fetchedAt) { live = r.live || []; offline = r.offline || []; fetchedAt = r.at || Date.now(); }
+      if (r.live?.length || r.offline?.length || !fetchedAt) {
+        live = r.live || []; offline = r.offline || []; fetchedAt = r.at || Date.now();
+        scan = { scanned: r.scanned || 0, partial: !!r.partial, sources: r.sources || null };
+      }
       render();
       // Read everyone's area in the background, biggest streams first.
       const known = await prism.nopixelLocate([...live].sort((a, b) => b.viewers - a.viewers).map((x) => x.login)).catch(() => ({}));
       for (const [l, v] of Object.entries(known || {})) locations.set(l, v);
+      locStatus = await prism.nopixelLocateStatus().catch(() => locStatus);
       render();
     }
+
+    // ---- Progress text ---------------------------------------------------------
+    const firstText = () => scanning ? `Finding everyone live on NoPixel… checked ${scanning.toLocaleString()} GTA V streams so far` : 'Finding everyone live on NoPixel…';
+    function paintUpdated() {
+      const el = $('#rp-updated');
+      if (loading) el.textContent = (fetchedAt ? 'Updating' : 'Searching Twitch') + (scanning ? ` · ${scanning.toLocaleString()} streams checked` : '…');
+      else el.textContent = fetchedAt ? 'Updated ' + new Date(fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      const first = $('#rp-first');
+      if (first) first.textContent = firstText();
+    }
+    prism.onNopixelProgress((p) => { if (!loading) return; scanning = p.scanned || 0; if (currentView === 'rp') paintUpdated(); });
+    function locText() {
+      const st = locStatus;
+      if (!st) return '';
+      if (st.error && !st.found) return "Couldn't read areas: " + st.error;
+      if (st.running || st.left) return `Reading areas… ${st.done} of ${st.total} streams checked · ${st.found} found`;
+      return st.total ? `Areas read ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · found ${st.found} of ${st.total} (the rest have their HUD hidden)` : '';
+    }
+    prism.onNopixelLocateStatus((st) => {
+      locStatus = st;
+      const el = $('#rp-locstatus');
+      if (el) { el.textContent = locText(); el.classList.toggle('err', !!(st.error && !st.found)); }
+    });
 
     let renderTimer = null;
     prism.onNopixelLocation((d) => {

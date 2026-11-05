@@ -25,11 +25,20 @@ function watchTwitchHeaders() {
     const hdr = {};
     for (const [k, v] of Object.entries(headers)) hdr[k.toLowerCase()] = v;
     if (hdr['client-integrity'] && !hdr['x-prism']) {
-      integrity = { token: hdr['client-integrity'], deviceId: hdr['x-device-id'], sessionId: hdr['client-session-id'], version: hdr['client-version'], at: Date.now() };
+      integrity = { token: hdr['client-integrity'], deviceId: hdr['x-device-id'], sessionId: hdr['client-session-id'], version: hdr['client-version'],
+        auth: !!hdr.authorization, at: Date.now() };
     }
   });
 }
 const freshIntegrity = () => integrity && Date.now() - integrity.at < INTEGRITY_MAX_AGE ? integrity : null;
+// Twitch turned the noted token down (it expired early): forget it, and allow
+// one new try right away (at most every 10 minutes).
+let lastBadIntegrity = 0;
+function integrityRejected() {
+  integrity = null;
+  if (Date.now() - lastBadIntegrity > 10 * 60 * 1000) { lastBadIntegrity = Date.now(); lastIntegrityTry = 0; }
+}
+const isIntegrityError = (r) => (r.errors || []).some((e) => e?.extensions?.code === 'IntegrityCheckFailed' || /integrity/i.test(e?.message || ''));
 
 // If no Twitch page has run yet, briefly open twitch.tv in a hidden window so
 // it produces one, then close it. At most once every 30 minutes.
@@ -44,7 +53,8 @@ function ensureIntegrity() {
     const w = new BrowserWindow({ show: false, width: 1280, height: 720, webPreferences: { partition: 'persist:twitch', sandbox: true, contextIsolation: true, backgroundThrottling: false } });
     w.webContents.setAudioMuted(true);
     try {
-      w.loadURL('https://www.twitch.tv/directory/following').catch(() => {});
+      // Any twitch.tv page makes one; this one works signed in or not.
+      w.loadURL('https://www.twitch.tv/directory/category/grand-theft-auto-v').catch(() => {});
       for (let i = 0; i < 50 && !freshIntegrity(); i++) await new Promise((r) => setTimeout(r, 500));
     } finally {
       if (!w.isDestroyed()) w.destroy();
@@ -64,6 +74,8 @@ async function gql(query, variables, withAuth, useIntegrity) {
   }
   const integ = useIntegrity && freshIntegrity();
   if (integ) {
+    // The token belongs to the page it came from: signed in or not.
+    if (integ.auth && !headers.Authorization) { const t = await authToken(); if (t) headers.Authorization = 'OAuth ' + t; }
     headers['Client-Integrity'] = integ.token;
     if (integ.deviceId) headers['X-Device-Id'] = integ.deviceId;
     if (integ.sessionId) headers['Client-Session-Id'] = integ.sessionId;
@@ -267,41 +279,82 @@ async function streamInfo(logins) {
 }
 
 // ---- RP directory: live streams in a category (GTA V by default) ----------
-const categoryCache = new Map(); // game -> { at, streams }
-async function categoryStreams(game = 'Grand Theft Auto V', force = false) {
-  const hit = categoryCache.get(game);
-  if (hit && !force && Date.now() - hit.at < 60 * 1000) return { streams: hit.streams, at: hit.at };
-  const streams = [];
-  let after = null, error = '';
-  for (let page = 0; page < 40; page++) { // up to 4,000 streams: the whole directory
+const categoryCache = new Map(); // game -> { at, streams, partial }
+const categoryPending = new Map();
+let scanProgress = () => {};
+const STREAM_NODE = `cursor node { title viewersCount createdAt freeformTags { name }
+  broadcaster { login displayName profileImageURL(width: 70) } }`;
+const toCategoryStream = (n) => ({
+  login: n.broadcaster.login.toLowerCase(),
+  name: n.broadcaster.displayName || n.broadcaster.login,
+  avatar: n.broadcaster.profileImageURL || '',
+  title: n.title || '',
+  viewers: n.viewersCount || 0,
+  startedAt: n.createdAt || null,
+  tags: (n.freeformTags || []).map((t) => t.name)
+});
+
+// One sort order of a game's directory, page by page. Twitch only gives the
+// first page freely; later pages need the browser-check token (see
+// ensureIntegrity), which Prism gets from a hidden twitch.tv page if needed.
+async function scanDirectory(game, { sort, tags = null, maxPages, onPage }) {
+  const out = [];
+  let after = null, partial = false, error = '', retried = false;
+  for (let page = 0; page < maxPages; page++) {
+    if (page === 1 && !freshIntegrity()) await ensureIntegrity();
     let r;
     try {
-      r = await gql(`query($name: String!, $after: Cursor) { game(name: $name) { streams(first: 100, after: $after) {
-        edges { cursor node { title viewersCount createdAt freeformTags { name }
-          broadcaster { login displayName profileImageURL(width: 70) } } }
-        pageInfo { hasNextPage } } } }`, { name: game, after }, false);
-    } catch (e) { error = e.message; break; }
+      r = await gql(`query($name: String!, $after: Cursor, $sort: StreamSort, $tags: [String!]) { game(name: $name) {
+        streams(first: 100, after: $after, options: { sort: $sort, freeformTags: $tags }) { edges { ${STREAM_NODE} } pageInfo { hasNextPage } } } }`,
+      { name: game, after, sort, tags }, false, true);
+    } catch (e) { error = e.message; partial = true; break; }
     const conn = r.data?.game?.streams;
-    if (!conn) { error = errText(r) || 'no data'; break; }
-    for (const e of conn.edges || []) {
-      const n = e?.node;
-      if (!n?.broadcaster?.login) continue;
-      streams.push({
-        login: n.broadcaster.login.toLowerCase(),
-        name: n.broadcaster.displayName || n.broadcaster.login,
-        avatar: n.broadcaster.profileImageURL || '',
-        title: n.title || '',
-        viewers: n.viewersCount || 0,
-        startedAt: n.createdAt || null,
-        tags: (n.freeformTags || []).map((t) => t.name)
-      });
+    if (!conn) {
+      if (page > 0 && isIntegrityError(r) && !retried) {
+        retried = true;
+        integrityRejected();
+        if (await ensureIntegrity()) { page--; continue; }
+      }
+      partial = page > 0 || partial;
+      error = errText(r) || 'no data';
+      break;
     }
+    for (const e of conn.edges || []) if (e?.node?.broadcaster?.login) out.push(toCategoryStream(e.node));
+    onPage?.(out.length);
     if (!conn.pageInfo?.hasNextPage || !conn.edges?.length) break;
     after = conn.edges[conn.edges.length - 1].cursor;
   }
-  if (!streams.length && error) return { streams: [], error };
-  categoryCache.set(game, { at: Date.now(), streams });
-  return { streams, at: Date.now() };
+  return { streams: out, partial, error };
+}
+
+// Every live stream in a game. Twitch's directory isn't a stable list (the
+// same stream can show up twice, and others get skipped), so it's read in
+// "newest first" order (the most complete) and "most viewers" order together,
+// plus the first page of any extra tags, and the results are merged.
+async function categoryStreams(game = 'Grand Theft Auto V', force = false, extraTags = []) {
+  const hit = categoryCache.get(game);
+  if (hit && Date.now() - hit.at < (force ? 30 * 1000 : 60 * 1000)) return { streams: hit.streams, at: hit.at, partial: hit.partial };
+  if (categoryPending.has(game)) return categoryPending.get(game);
+  const job = (async () => {
+    const counts = {};
+    const report = (k) => (n) => { counts[k] = n; scanProgress({ game, scanned: Math.max(...Object.values(counts)) }); };
+    const runs = await Promise.all([
+      scanDirectory(game, { sort: 'RECENT', maxPages: 80, onPage: report('recent') }),
+      scanDirectory(game, { sort: 'VIEWER_COUNT', maxPages: 10, onPage: report('top') }),
+      ...extraTags.map((t) => scanDirectory(game, { sort: 'VIEWER_COUNT', tags: [t], maxPages: 3 }))
+    ]);
+    const byLogin = new Map();
+    for (const run of runs) for (const x of run.streams) if (!byLogin.has(x.login)) byLogin.set(x.login, x);
+    const streams = [...byLogin.values()];
+    const partial = runs[0].partial || !!runs[0].error;
+    const error = runs[0].error || runs[1].error;
+    if (!streams.length && error) return { streams: [], error };
+    const at = Date.now();
+    categoryCache.set(game, { at, streams, partial });
+    return { streams, at, partial, error: partial ? error : '' };
+  })();
+  categoryPending.set(game, job);
+  try { return await job; } finally { categoryPending.delete(game); }
 }
 
 // ---- NoPixel roster -----------------------------------------------------------
@@ -311,6 +364,10 @@ async function categoryStreams(game = 'Grand Theft Auto V', force = false) {
 const fs = require('fs');
 const { app } = require('electron');
 const NOPIXEL = /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i;
+// Other GTA RP servers. A title naming one of these (and not NoPixel) means
+// they're not on NoPixel right now, even if they were before or tag NoPixel.
+const OTHER_SERVER = /\b(?:prodigy|onx|eclipse\s*rp|gta\s*world|mafia\s*city|new\s*day\s*rp|grizzl[e]?y\s*world|unscripted|lucky\s*v\b|flashback|fratworld|iconic\s*rp|twilight\s*rp|impero|unity[-\s]?life|homestate|peak\s*rp|subversion|nopixel\s*inspired|svrp|wiwang|redline\s*rp|rp\s*alliance|underground\s*rp|district\s*10|dw\s*rp|nexus\s*rp|ignite\s*rp|purple\s*rp|budget\s*rp)/i;
+const NP_TAGS = ['NoPixel', 'NoPixelV', 'NoPixelWL', 'NPV', 'NoPixel5', 'NoPixel4'];
 let roster = null;
 const rosterFile = () => path.join(app.getPath('userData'), 'nopixel-roster.json');
 function loadRoster() {
@@ -334,17 +391,23 @@ async function nopixel(force) {
   const s = settings.get();
   const removed = new Set((s.npRemoved || []).map((l) => l.toLowerCase()));
   const added = new Set((s.npAdded || []).map((l) => l.toLowerCase()));
-  const r = await categoryStreams('Grand Theft Auto V', force);
+  const r = await categoryStreams('Grand Theft Auto V', force, NP_TAGS);
   const ro = loadRoster();
+  const sources = { title: 0, tag: 0, known: 0, otherServer: 0 };
   const now = Date.now();
   const followGta = new Set(lastFollowLive.filter((c) => /grand theft auto/i.test(c.game || '')).map((c) => c.login));
 
   const live = [];
   for (const x of r.streams) {
     if (removed.has(x.login)) continue;
-    const byTitle = NOPIXEL.test(x.title) || x.tags.some((t) => NOPIXEL.test(t));
+    const inTitle = NOPIXEL.test(x.title);
+    const byTag = !inTitle && x.tags.some((t) => NOPIXEL.test(t));
     const known = !!ro[x.login] || added.has(x.login) || followGta.has(x.login);
-    if (!byTitle && !known) continue;
+    if (!inTitle && !byTag && !known) continue;
+    // On another server today? Skip them (but keep them on the roster).
+    if (!inTitle && OTHER_SERVER.test(x.title) && !added.has(x.login)) { sources.otherServer++; continue; }
+    const byTitle = inTitle || byTag;
+    sources[inTitle ? 'title' : byTag ? 'tag' : 'known']++;
     const prev = ro[x.login];
     const source = byTitle ? 'title' : prev?.source || (added.has(x.login) ? 'manual' : 'follow');
     ro[x.login] = { login: x.login, name: x.name, avatar: x.avatar || prev?.avatar || '', lastSeen: now,
@@ -356,7 +419,7 @@ async function nopixel(force) {
   saveRoster();
   const liveSet = new Set(live.map((x) => x.login));
   const offline = Object.values(ro).filter((x) => !liveSet.has(x.login) && !removed.has(x.login)).sort((a, b) => b.lastSeen - a.lastSeen);
-  return { live, offline, at: r.at, error: r.error, scanned: r.streams.length };
+  return { live, offline, at: r.at, error: r.error, partial: !!r.partial, scanned: r.streams.length, sources };
 }
 
 function rosterRemove(login) {
@@ -420,6 +483,7 @@ async function poll() {
 
 function init(context) {
   ctx = context;
+  scanProgress = (p) => ctx.send('nopixel:progress', p);
   watchTwitchHeaders();
   ipcMain.handle('twitch:following', async () => { const r = await fetchFollowing(); if (!r.error) lastFollowLive = r.live; return r; });
   ipcMain.handle('twitch:stream-info', (_e, logins) => streamInfo(logins));

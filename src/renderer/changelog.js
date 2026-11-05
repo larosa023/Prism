@@ -1,6 +1,17 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.8.4',
+    date: 'Nov 5, 2026',
+    items: [
+      'NoPixel tab now checks every live GTA V stream on Twitch (over 2,000 at a time), not just the first 100, so it finds everyone streaming NoPixel. It also looks at NoPixel tags, and the count at the top shows how many streams were checked.',
+      'People whose title names another server (Prodigy, ONX and others) are left out, even if they were on NoPixel before.',
+      'Areas load again in the installed app. A missing part of the text reader stopped them from ever showing up.',
+      'Areas are read faster (the next preview downloads while one is being read), also pick up house addresses, and the Areas view shows progress ("12 of 49 checked") or what went wrong.',
+      'Character names are guessed better: crew tags and server names in titles are skipped.'
+    ]
+  },
+  {
     version: '0.8.3',
     date: 'Nov 5, 2026',
     items: [
