@@ -8,7 +8,7 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Multi-view**: watch several streams at once in a Grid or Focus layout (one big, the rest stacked). Mute, focus, reload, or remove each one from its hover bar. *One stream with sound* keeps audio from piling up.
 - **Lean Twitch chat**: a native chat that uses one connection for every channel, keeps a capped history, and shows Twitch, 7TV, BTTV and FFZ emotes. It's much lighter than loading twitch.tv's chat page per stream. If you're signed in, you can chat from it.
 - **Following**: see which Twitch channels you follow are live (in the sidebar and the Following panel) and add them with one click.
-- **RP servers tab**: everyone live on NoPixel right now (or ONX, Prodigy, Eclipse, or your own words), with thumbnails, viewers, uptime and the character they're playing. Search, sort, filter to people you follow, and click a stream to add it to multi-view.
+- **NoPixel tab**: every NoPixel streamer. Live ones are found across Twitch's whole GTA V directory (down to 0 viewers) with thumbnails, viewers, uptime and the character they're playing; offline ones come from a roster of everyone Prism has seen live on NoPixel, with their last character and when they were last live. Search, sort, filter to people you follow, and click a live stream to add it to multi-view.
 - **Go-live alerts**: a Windows notification when someone you follow goes live; click it to watch. Channels on your auto-add list join multi-view by themselves.
 - **Stream info on tiles**: hover a Twitch tile for its title, game, viewers and uptime.
 - **Saved layouts**: save a set of streams and its layout under a name and reopen it in one click.

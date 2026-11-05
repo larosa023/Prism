@@ -8,8 +8,6 @@ const DEFAULTS = {
   theme: 'midnight',        // midnight, oled, slate, forest, sunset, rose, light
 
   // RP tab
-  rpServer: 'nopixel',      // which RP server the RP tab shows
-  rpCustom: '',             // words to match for the 'Custom' server
   rpSort: 'viewers',
 
   // Platforms

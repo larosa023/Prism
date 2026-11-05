@@ -1658,91 +1658,67 @@
   setInterval(refreshPoints, 60000);
 
   // =========================================================================
-  // RP servers tab: who's live on NoPixel (and other GTA RP servers) now.
-  // Streams are matched by the server's name in their title or tags, the
-  // same way RP directories find them.
+  // NoPixel tab: every NoPixel streamer. Live ones are found across Twitch's
+  // whole GTA V directory by "NoPixel" in their title or tags; offline ones
+  // come from Prism's roster of everyone it has seen live on NoPixel.
   // =========================================================================
-  const RP_SERVERS = [
-    { id: 'nopixel', name: 'NoPixel', match: /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i },
-    { id: 'onx', name: 'ONX', match: /\bonx\b/i },
-    { id: 'prodigy', name: 'Prodigy', match: /prodigy/i },
-    { id: 'eclipse', name: 'Eclipse', match: /eclipse\s*rp|\beclipse\b/i },
-    { id: 'custom', name: 'Custom…', match: null }
-  ];
   const RP = (() => {
-    let data = [], fetchedAt = 0, timer = null, loading = false, error = '';
-    const server = () => RP_SERVERS.find((x) => x.id === S.rpServer) || RP_SERVERS[0];
-    const customRegex = () => {
-      const words = (S.rpCustom || '').split(',').map((w) => w.trim()).filter(Boolean);
-      if (!words.length) return null;
-      return new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*')).join('|'), 'i');
-    };
-    const matcher = () => (server().id === 'custom' ? customRegex() : server().match);
+    let live = [], offline = [], fetchedAt = 0, scanned = 0, timer = null, loading = false, error = '';
+    const NP = /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i;
 
     // "Swan DeLeur | NoPixel V | !socials" -> "Swan DeLeur"
-    function character(title, re) {
-      const parts = title.split(/\s[|•·—–-]\s|\s*\|\s*/).map((p) => p.replace(/[\[\]()]/g, '').trim()).filter(Boolean);
+    function character(title, login) {
+      const parts = String(title || '').split(/\s[|•·—–-]\s|\s*\|\s*/).map((p) => p.replace(/[\[\]()]/g, '').trim()).filter(Boolean);
       for (const p of parts) {
-        if (re && re.test(p)) continue;
+        if (NP.test(p)) continue;
         if (/[!@#]|https?:|\b(day|ep|episode|sub|giveaway|drops|rp|gta|nopixel|stream|live)\b/i.test(p)) continue;
-        if (p.length > 28 || p.split(/\s+/).length > 4) continue;
-        if (!/^[\p{Lu}]/u.test(p)) continue;
+        if (p.length > 28 || p.split(/\s+/).length > 4 || !/^[\p{Lu}]/u.test(p)) continue;
+        if (p.toLowerCase().replace(/\s+/g, '') === login) continue; // just their own name
         return p;
       }
       return '';
     }
+    const ago = (t) => {
+      const m = Math.floor((Date.now() - t) / 60000);
+      if (m < 60) return `${Math.max(1, m)}m ago`;
+      const hrs = Math.floor(m / 60);
+      if (hrs < 24) return `${hrs}h ago`;
+      const d = Math.floor(hrs / 24);
+      return d === 1 ? 'yesterday' : `${d} days ago`;
+    };
 
-    function renderServers() {
-      const box = $('#rp-servers');
-      box.textContent = '';
-      for (const sv of RP_SERVERS) {
-        box.append(h('button', { class: 'rp-server' + (sv.id === server().id ? ' on' : ''), text: sv.name, onclick: () => {
-          save({ rpServer: sv.id }).then(() => { render(); if (sv.id === 'custom') $('#rp-custom').focus(); });
-          S.rpServer = sv.id;
-          render();
-        } }));
-      }
-      $('#rp-custom-row').hidden = server().id !== 'custom';
-      $('#rp-name').textContent = server().id === 'custom' ? (S.rpCustom ? `"${S.rpCustom}"` : 'Custom search') : server().name;
+    function matches(x, q) {
+      return !q || x.login.includes(q) || (x.name || '').toLowerCase().includes(q) || (x.title || x.lastTitle || '').toLowerCase().includes(q) || (x.char || '').toLowerCase().includes(q);
     }
 
     function render() {
-      renderServers();
-      const grid = $('#rp-grid');
-      grid.textContent = '';
-      const re = matcher();
-      if (error && !data.length) {
-        grid.append(h('div', { class: 'rp-empty' }, "Couldn't load live streams from Twitch.", h('div', { class: 'err-detail', text: 'Twitch said: ' + error })));
-        $('#rp-stats').textContent = '';
+      const body = $('#rp-body');
+      body.textContent = '';
+      $('#rp-updated').textContent = loading ? (fetchedAt ? 'Updating…' : 'Searching Twitch…') : fetchedAt ? 'Updated ' + new Date(fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+      if (error && !live.length && !offline.length) {
+        body.append(h('div', { class: 'rp-empty' }, "Couldn't load live streams from Twitch.", h('div', { class: 'err-detail', text: 'Twitch said: ' + error })));
         return;
       }
-      if (!fetchedAt) { grid.append(h('div', { class: 'rp-empty', text: 'Loading who\'s live…' })); return; }
-      if (!re) { grid.append(h('div', { class: 'rp-empty', text: 'Type the words that appear in stream titles for your server, then Search.' })); $('#rp-stats').textContent = ''; return; }
+      if (!fetchedAt) { body.append(h('div', { class: 'rp-empty', text: "Finding everyone live on NoPixel…" })); return; }
+
       const q = $('#rp-search').value.trim().toLowerCase();
+      const onlyFollowing = $('#rp-following').checked;
       const followed = new Set(followingCache.map((c) => c.login.toLowerCase()));
-      let list = data.filter((x) => re.test(x.title) || x.tags.some((t) => re.test(t)));
-      const total = list.length, viewers = list.reduce((a, x) => a + x.viewers, 0);
-      list = list.map((x) => {
-        const c = character(x.title, re);
-        // Skip it when the "character" is just the streamer's own name.
-        return { ...x, char: c && c.toLowerCase().replace(/\s+/g, '') !== x.login ? c : '' };
-      });
-      if ($('#rp-following').checked) list = list.filter((x) => followed.has(x.login));
-      if (q) list = list.filter((x) => x.login.includes(q) || x.name.toLowerCase().includes(q) || x.title.toLowerCase().includes(q) || x.char.toLowerCase().includes(q));
+      const inView = new Set(streams.filter((x) => x.platform === 'twitch').map((x) => x.id));
+      const totalViewers = live.reduce((a, x) => a + x.viewers, 0);
+      $('#rp-stats').textContent = `${live.length} live · ${fmtViewers(totalViewers)} watching` + (offline.length ? ` · ${offline.length} offline` : '');
+
+      // Live
+      let L = live.map((x) => ({ ...x, char: character(x.title, x.login) })).filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login)));
       const sort = $('#rp-sort').value;
       const t = (x) => (x.startedAt ? new Date(x.startedAt).getTime() : 0);
-      list.sort(sort === 'newest' ? (a, b) => t(b) - t(a) : sort === 'longest' ? (a, b) => t(a) - t(b) : sort === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.viewers - a.viewers);
+      L.sort(sort === 'newest' ? (a, b) => t(b) - t(a) : sort === 'longest' ? (a, b) => t(a) - t(b) : sort === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.viewers - a.viewers);
 
-      $('#rp-stats').textContent = `${total} live · ${fmtViewers(viewers)} watching`;
-      $('#rp-updated').textContent = loading ? 'Updating…' : fetchedAt ? 'Updated ' + new Date(fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
-      if (!list.length) {
-        grid.append(h('div', { class: 'rp-empty', text: total ? 'No streams match your filters.' : `Nobody is live on ${server().name} right now.` }));
-        return;
-      }
-      const inView = new Set(streams.filter((x) => x.platform === 'twitch').map((x) => x.id));
+      body.append(h('h2', { class: 'rp-section', text: `Live now · ${L.length}` }));
+      const grid = h('div', { class: 'rp-grid' });
+      if (!L.length) grid.append(h('div', { class: 'rp-empty', text: live.length ? 'No live streams match your filters.' : 'Nobody is live on NoPixel right now.' }));
       const bust = Math.floor(Date.now() / 120000);
-      const frag = document.createDocumentFragment();
-      for (const x of list) {
+      for (const x of L) {
         const added = inView.has(x.login);
         const card = h('div', { class: 'rp-card' + (added ? ' added' : ''), title: x.title },
           h('div', { class: 'rp-thumb' },
@@ -1762,33 +1738,53 @@
           toast(`Added ${x.name} to multi-view.`);
           render();
         });
-        frag.append(card);
+        grid.append(card);
       }
-      grid.append(frag);
+      body.append(grid);
+
+      // Offline (everyone seen live on NoPixel before)
+      if ($('#rp-offline').checked) {
+        const O = offline.map((x) => ({ ...x, char: character(x.lastTitle, x.login) }))
+          .filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login)))
+          .sort(sort === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.lastSeen - a.lastSeen);
+        body.append(h('h2', { class: 'rp-section', text: `Offline · ${O.length}` }));
+        const list = h('div', { class: 'rp-offline' });
+        if (!O.length) list.append(h('div', { class: 'rp-empty small', text: offline.length ? 'No offline streamers match your filters.'
+          : 'Streamers show up here after Prism has seen them live on NoPixel. The list grows each time this tab updates.' }));
+        for (const x of O) {
+          list.append(h('div', { class: 'rp-off', title: x.lastTitle || '', onclick: () => prism.openExternal(`https://www.twitch.tv/${x.login}`) },
+            x.avatar ? h('img', { class: 'rp-av', src: x.avatar, alt: '', loading: 'lazy' }) : h('span', { class: 'rp-av' }),
+            h('div', { class: 'rp-text' },
+              h('div', { class: 'rp-who' }, h('b', { text: x.name }), followed.has(x.login) ? h('span', { class: 'rp-fol', text: 'Following' }) : null),
+              x.char ? h('div', { class: 'rp-char', text: x.char }) : null,
+              h('div', { class: 'rp-t', text: 'Last live ' + ago(x.lastSeen) }))));
+        }
+        body.append(list);
+      }
     }
 
     async function load(force) {
       if (loading) return;
       loading = true;
       render();
-      const r = await prism.twitchCategoryStreams('Grand Theft Auto V', force).catch((e) => ({ streams: [], error: String(e) }));
+      const r = await prism.nopixelStreams(force).catch((e) => ({ live: [], offline: [], error: String(e) }));
       loading = false;
       error = r.error || '';
-      if (r.streams?.length || !data.length) { data = r.streams || []; fetchedAt = r.at || Date.now(); }
+      if (r.live?.length || r.offline?.length || !fetchedAt) {
+        live = r.live || []; offline = r.offline || []; scanned = r.scanned || 0; fetchedAt = r.at || Date.now();
+      }
       render();
     }
 
     $('#rp-search').addEventListener('input', render);
     $('#rp-sort').addEventListener('change', () => { save({ rpSort: $('#rp-sort').value }); render(); });
     $('#rp-following').addEventListener('change', render);
+    $('#rp-offline').addEventListener('change', render);
     $('#rp-refresh').addEventListener('click', () => load(true));
-    $('#rp-custom-save').addEventListener('click', () => { S.rpCustom = $('#rp-custom').value.trim(); save({ rpCustom: S.rpCustom }); render(); });
-    $('#rp-custom').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#rp-custom-save').click(); });
 
     return {
       show() {
         $('#rp-sort').value = S.rpSort || 'viewers';
-        $('#rp-custom').value = S.rpCustom || '';
         if (Date.now() - fetchedAt > 60000) load(false); else render();
         clearInterval(timer);
         timer = setInterval(() => load(true), 120000); // refresh every 2 minutes while open

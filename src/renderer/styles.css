@@ -564,3 +564,13 @@ img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }
 .rp-fol { font-size: 10px; color: var(--accent-2); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
 .rp-char { color: var(--accent-2); font-size: 12px; font-weight: 600; }
 .rp-t { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.rp-body { padding: 4px 20px 40px; }
+.rp-body .rp-grid { padding: 0; }
+.rp-section { font-size: 14px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin: 18px 0 10px; }
+.rp-offline { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
+.rp-off { display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: 9px; background: var(--bg-2); border: 1px solid var(--line); cursor: pointer; }
+.rp-off:hover { border-color: var(--hover-line); }
+.rp-off .rp-av { filter: grayscale(.8); opacity: .8; }
+.rp-off .rp-char { color: var(--text); font-weight: 500; }
+.rp-empty.small { padding: 16px 0; text-align: left; }

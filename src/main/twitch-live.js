@@ -273,7 +273,7 @@ async function categoryStreams(game = 'Grand Theft Auto V', force = false) {
   if (hit && !force && Date.now() - hit.at < 60 * 1000) return { streams: hit.streams, at: hit.at };
   const streams = [];
   let after = null, error = '';
-  for (let page = 0; page < 12; page++) {
+  for (let page = 0; page < 40; page++) { // up to 4,000 streams: the whole directory
     let r;
     try {
       r = await gql(`query($name: String!, $after: Cursor) { game(name: $name) { streams(first: 100, after: $after) {
@@ -296,14 +296,47 @@ async function categoryStreams(game = 'Grand Theft Auto V', force = false) {
         tags: (n.freeformTags || []).map((t) => t.name)
       });
     }
-    // Streams come most-watched first; stop once they're tiny.
-    const last = conn.edges?.[conn.edges.length - 1]?.node;
-    if (!conn.pageInfo?.hasNextPage || !conn.edges?.length || (last && last.viewersCount < 3)) break;
+    if (!conn.pageInfo?.hasNextPage || !conn.edges?.length) break;
     after = conn.edges[conn.edges.length - 1].cursor;
   }
   if (!streams.length && error) return { streams: [], error };
   categoryCache.set(game, { at: Date.now(), streams });
   return { streams, at: Date.now() };
+}
+
+// ---- NoPixel roster -----------------------------------------------------------
+// Everyone Prism has seen live on NoPixel, kept on disk so the RP tab can
+// list offline streamers too (with their last character and when they were
+// last seen).
+const fs = require('fs');
+const { app } = require('electron');
+const NOPIXEL = /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i;
+let roster = null;
+const rosterFile = () => path.join(app.getPath('userData'), 'nopixel-roster.json');
+function loadRoster() {
+  if (roster) return roster;
+  try { roster = JSON.parse(fs.readFileSync(rosterFile(), 'utf8')); } catch { roster = {}; }
+  return roster;
+}
+let rosterSaveTimer = null;
+function saveRoster() {
+  clearTimeout(rosterSaveTimer);
+  rosterSaveTimer = setTimeout(() => {
+    try { fs.writeFileSync(rosterFile() + '.tmp', JSON.stringify(roster)); fs.renameSync(rosterFile() + '.tmp', rosterFile()); } catch {}
+  }, 1000);
+}
+async function nopixel(force) {
+  const r = await categoryStreams('Grand Theft Auto V', force);
+  const live = r.streams.filter((x) => NOPIXEL.test(x.title) || x.tags.some((t) => NOPIXEL.test(t)));
+  const ro = loadRoster();
+  const now = Date.now();
+  for (const x of live) {
+    ro[x.login] = { login: x.login, name: x.name, avatar: x.avatar || ro[x.login]?.avatar || '', lastSeen: now, lastTitle: x.title, firstSeen: ro[x.login]?.firstSeen || now };
+  }
+  if (live.length) saveRoster();
+  const liveSet = new Set(live.map((x) => x.login));
+  const offline = Object.values(ro).filter((x) => !liveSet.has(x.login)).sort((a, b) => b.lastSeen - a.lastSeen);
+  return { live, offline, at: r.at, error: r.error, scanned: r.streams.length };
 }
 
 // ---- Go-live alerts -------------------------------------------------------
@@ -355,6 +388,7 @@ function init(context) {
   ipcMain.handle('twitch:following', () => fetchFollowing());
   ipcMain.handle('twitch:stream-info', (_e, logins) => streamInfo(logins));
   ipcMain.handle('twitch:category-streams', (_e, game, force) => categoryStreams(game, force));
+  ipcMain.handle('nopixel:streams', (_e, force) => nopixel(force));
   // First check seeds the list quietly, so you don't get alerts for everyone
   // who was already live when Prism opened.
   setTimeout(poll, 8000);
