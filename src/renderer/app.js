@@ -19,12 +19,15 @@
   const PLAT_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', kick: 'Kick' };
 
   let toastTimer;
-  function toast(msg) {
+  function toast(msg, action) {
     const t = $('#toast');
     t.textContent = msg;
+    if (action) {
+      t.append(h('button', { class: 'toast-act', text: action.label, onclick: () => { t.hidden = true; action.run(); } }));
+    }
     t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (t.hidden = true), 2600);
+    toastTimer = setTimeout(() => (t.hidden = true), action ? 6000 : 2600);
   }
 
   const save = (patch) => prism.settings.set(patch).then((s) => (S = s));
@@ -207,6 +210,7 @@
       // Lightweight player: a <video> in this window, no extra browser process.
       const player = new NativeTwitchPlayer(s.id, {
         kind: s.platform,
+        rewindSeconds: Number(S.rewindSeconds) || 0,
         onStatus: (msg) => { statusEl.textContent = msg; statusEl.hidden = !msg; },
         onLevels: (levels) => {
           const opts = [['auto', 'Auto (fit tile)'], ['source', 'Source']];
@@ -233,9 +237,16 @@
         s.quality = quality.value; player.setQuality(s.quality); persistStreams();
       } }, h('option', { value: 'auto', text: 'Auto' }));
       const volume = h('input', { class: 'tile-volume', type: 'range', min: 0, max: 1, step: 0.05, value: s.volume ?? 1, title: 'Volume',
-        oninput: () => { s.volume = Number(volume.value); player.setVolume(s.volume); if (s.muted && s.volume > 0) setMuted(key, false); },
+        oninput: () => { s.volume = Number(volume.value); applyMute(t); if (s.muted && s.volume > 0) setMuted(key, false); },
         onchange: () => persistStreams() });
       extra.append(volume, quality);
+      // Rewind / go live / clip
+      if (Number(S.rewindSeconds) > 0) {
+        extra.append(h('button', { class: 'tile-btn', title: 'Rewind 10s (Shift: 30s) · ←', text: '⟲',
+          onclick: (e) => { player.seekBy(e.shiftKey ? -30 : -10); paintBehind(t); } }));
+      }
+      if (s.platform === 'twitch') extra.append(h('button', { class: 'tile-btn', title: `Save the last ${S.clipSeconds || 60}s as a clip · K`, text: '✂', onclick: () => saveClip(s) }));
+      t.behindEl = h('button', { class: 'tile-behind', hidden: true, title: 'Jump back to live · L', onclick: () => { player.goLive(); paintBehind(t); } });
       player.setQuality(s.quality || 'auto');
       player.setVolume(s.volume ?? 1);
       media = player.video;
@@ -244,6 +255,7 @@
       t.ready = true;
       t.player = player;
       t.setAudio = (muted) => player.setMuted(muted);
+      t.setVol = (v) => player.setVolume(v);
       t.reload = () => player.start();
       t.destroy = () => { player.destroy(); t.el.remove(); };
       requestAnimationFrame(() => player.start());
@@ -255,9 +267,14 @@
       media = wv;
       t.wv = wv;
       t.setAudio = (muted) => { if (t.ready) try { wv.setAudioMuted(muted); } catch {} };
+      t.setVol = (v) => {
+        t.wantVol = v;
+        if (t.ready) wv.executeJavaScript(`document.querySelectorAll('video').forEach((el) => { el.volume = ${Math.max(0, Math.min(1, v))}; })`).catch(() => {});
+      };
       t.reload = () => wv.reload();
       t.destroy = () => t.el.remove();
       wv.addEventListener('dom-ready', () => { t.ready = true; applyMute(t); });
+      wv.addEventListener('media-started-playing', () => { if (t.wantVol != null) t.setVol(t.wantVol); });
     }
 
     const bar = h('div', { class: 'tile-bar' },
@@ -272,7 +289,7 @@
       h('button', { class: 'tile-btn', title: 'Reload', text: '⟳', onclick: () => t.reload() }),
       h('button', { class: 'tile-btn', title: 'Remove', text: '✕', onclick: () => removeStream(key) })
     );
-    t.el = h('div', { class: 'tile', 'data-key': key }, media, bar, infoEl, statusEl, mutedTag);
+    t.el = h('div', { class: 'tile', 'data-key': key }, media, bar, infoEl, statusEl, mutedTag, t.behindEl || null);
     t.el.addEventListener('mouseenter', () => (hoveredKey = key));
     t.el.addEventListener('mouseleave', () => { if (hoveredKey === key) hoveredKey = null; });
     // Drag to move: anywhere on a lightweight player's video, or by the name / ⠿ handle.
@@ -299,17 +316,38 @@
     return t;
   }
 
+  // What a stream sounds like: muted, "ducked" (quiet in the background
+  // while another stream has the sound), or at its own volume.
+  const duckLevel = () => Math.max(0.05, Math.min(0.6, Number(S.duckLevel) || 0.2));
   function applyMute(t) {
-    t.muteBtn.textContent = t.stream.muted ? '🔇' : '🔊';
-    t.mutedTag.hidden = !t.stream.muted;
-    t.setAudio(!!t.stream.muted);
+    const st = t.stream;
+    const ducked = !st.muted && st.ducked;
+    t.muteBtn.textContent = st.muted ? '🔇' : ducked ? '🔉' : '🔊';
+    t.mutedTag.hidden = !st.muted && !ducked;
+    t.mutedTag.textContent = st.muted ? 'Muted' : 'Quiet';
+    t.setAudio(!!st.muted);
+    t.setVol?.((st.volume ?? 1) * (ducked ? duckLevel() : 1));
+    if (typeof renderMixer === 'function' && !$('#mixer-panel').hidden) renderMixer();
+  }
+  // Give one stream the sound; the others are muted or turned down,
+  // depending on Settings → "Other streams".
+  function soloSound(key) {
+    const duck = S.backgroundAudio === 'duck';
+    for (const x of streams) {
+      if (keyOf(x) === key) { x.muted = false; x.ducked = false; }
+      else if (duck) { x.muted = false; x.ducked = true; }
+      else { x.muted = true; x.ducked = false; }
+    }
+    for (const t of tiles.values()) applyMute(t);
+    persistStreams();
   }
 
   function setMuted(key, muted) {
-    for (const s of streams) {
-      if (keyOf(s) === key) s.muted = muted;
-      else if (!muted && S.singleAudio) s.muted = true;
-    }
+    const st = streams.find((x) => keyOf(x) === key);
+    if (!st) return;
+    if (!muted && S.singleAudio) return soloSound(key);
+    st.muted = muted;
+    st.ducked = false;
     for (const t of tiles.values()) applyMute(t);
     persistStreams();
   }
@@ -428,6 +466,74 @@
     markLive();
   }
 
+  setInterval(() => {
+    for (const t of tiles.values()) if (t.wv && t.wantVol != null && t.wantVol < 0.99) t.setVol(t.wantVol);
+  }, 4000);
+
+  // ---- Volume mixer ------------------------------------------------------------
+  const mixer = $('#mixer-panel');
+  $('#mixer-btn').addEventListener('click', (e) => { e.stopPropagation(); mixer.hidden = !mixer.hidden; if (!mixer.hidden) renderMixer(); });
+  // (A click on a control that was just redrawn isn't a click outside.)
+  document.addEventListener('click', (e) => { if (!mixer.hidden && e.target.isConnected && !e.target.closest('.mixer-wrap')) mixer.hidden = true; });
+  function renderMixer() {
+    mixer.textContent = '';
+    const vis = stageStreams();
+    if (!vis.length) { mixer.append(h('div', { class: 'sug-hint', text: 'Add some streams first.' })); return; }
+    for (const st of vis) {
+      const key = keyOf(st);
+      const t = tiles.get(key);
+      const ducked = !st.muted && st.ducked;
+      const slider = h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: st.volume ?? 1, class: 'mx-vol',
+        oninput: (e) => { st.volume = Number(e.target.value); if (st.muted && st.volume > 0) { st.muted = false; } if (t) applyMute(t); },
+        onchange: () => persistStreams() });
+      mixer.append(h('div', { class: 'mx-row' + (st.muted ? ' muted' : ducked ? ' ducked' : '') },
+        siteIcon(st.platform, 'fav fav-sm'),
+        h('span', { class: 'mx-name', text: st.label || st.id }),
+        h('button', { class: 'icon-btn', title: st.muted ? 'Unmute' : 'Mute', text: st.muted ? '🔇' : ducked ? '🔉' : '🔊', onclick: () => setMuted(key, !st.muted) }),
+        slider,
+        h('span', { class: 'mx-pct', text: st.muted ? 'off' : Math.round((st.volume ?? 1) * (ducked ? duckLevel() : 1) * 100) + '%' }),
+        h('button', { class: 'btn mx-solo', title: 'Only this one at full volume', text: 'Solo', onclick: () => soloSound(key) })));
+    }
+    const seg = h('div', { class: 'seg' },
+      ...[['mute', 'Muted'], ['duck', 'Quiet']].map(([v, label]) => h('button', { class: (S.backgroundAudio || 'mute') === v ? 'on' : '', text: label,
+        onclick: async () => {
+          await save({ backgroundAudio: v });
+          // Re-apply to whatever is currently backgrounded.
+          for (const x of streams) {
+            if (v === 'duck' && x.muted && streams.some((y) => !y.muted && !y.ducked)) { x.muted = false; x.ducked = true; }
+            else if (v === 'mute' && x.ducked) { x.ducked = false; x.muted = true; }
+          }
+          for (const tt of tiles.values()) applyMute(tt);
+          persistStreams();
+          renderMixer();
+        } })));
+    mixer.append(h('div', { class: 'mx-foot' }, h('span', { class: 'muted small', text: 'Other streams when one has the sound:' }), seg,
+      h('button', { class: 'btn', text: 'Mute all', onclick: () => { for (const x of streams) { x.muted = true; x.ducked = false; } for (const tt of tiles.values()) applyMute(tt); persistStreams(); } })));
+  }
+
+  // ---- Rewind and clips -------------------------------------------------------
+  const fmtBehind = (sec) => `−${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  function paintBehind(t) {
+    if (!t?.behindEl || !t.player) return;
+    const b = t.player.behind();
+    const show = b > 4 && !t.player.video.paused;
+    t.behindEl.hidden = !show;
+    if (show) t.behindEl.textContent = `${fmtBehind(b)} · Go live`;
+  }
+  setInterval(() => { for (const t of tiles.values()) paintBehind(t); }, 1000);
+
+  async function saveClip(s) {
+    toast(`Saving the last ${S.clipSeconds || 60}s of ${s.label || s.id}…`);
+    const r = await prism.twitchStream.clip(s.id, S.clipSeconds || 60).catch((e) => ({ error: String(e) }));
+    if (r.error) return toast(r.error);
+    toast(`Saved a ${r.seconds}s clip of ${s.label || s.id}.`, { label: 'Show in folder', run: () => prism.twitchStream.showClip(r.file) });
+  }
+  // The stream hotkeys act on: under the mouse, else the priority, else the one with sound.
+  function targetTile() {
+    const key = hoveredKey || prioKey || keyOf(stageStreams().find((x) => !x.muted) || {});
+    return tiles.get(key);
+  }
+
   // ---- Priority stream (Ctrl + click) -------------------------------------
   let prioKey = null;
   function setPriority(key) {
@@ -443,9 +549,7 @@
     }
     prioKey = key;
     focusKey = key;
-    for (const x of streams) x.muted = keyOf(x) !== key;
-    for (const t of tiles.values()) applyMute(t);
-    persistStreams();
+    soloSound(key);
     if (S.layout !== 'focus') setLayout('focus'); else layout();
     if (!s.chatOff) setChat(key);
     paintPriority();
@@ -636,16 +740,14 @@
     if (/^[1-9]$/.test(k)) {
       const s = vis[Number(k) - 1];
       if (!s) return;
-      for (const x of streams) x.muted = keyOf(x) !== keyOf(s);
-      for (const t of tiles.values()) applyMute(t);
-      persistStreams();
+      soloSound(keyOf(s));
       toast(`Sound: ${s.label || s.id}`);
     } else if (k === 'm') {
       const playing = vis.find((s) => !s.muted);
-      if (playing) { lastSoundKey = keyOf(playing); for (const x of streams) x.muted = true; toast('Muted'); }
+      if (playing) { lastSoundKey = keyOf(playing); for (const x of streams) { x.muted = true; x.ducked = false; } toast('Muted'); }
       else {
         const back = vis.find((s) => keyOf(s) === lastSoundKey) || vis[0];
-        if (back) { back.muted = false; toast(`Sound: ${back.label || back.id}`); }
+        if (back) { soloSound(keyOf(back)); toast(`Sound: ${back.label || back.id}`); }
       }
       for (const t of tiles.values()) applyMute(t);
       persistStreams();
@@ -656,6 +758,18 @@
       setLayout(S.layout === 'focus' ? 'grid' : 'focus');
     } else if (k === 'c') {
       $('#toggle-chat').click();
+    } else if (k === 'arrowleft' || k === 'arrowright') {
+      const t = targetTile();
+      if (!t?.player || !(Number(S.rewindSeconds) > 0)) return;
+      t.player.seekBy((k === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 30 : 10));
+      paintBehind(t);
+    } else if (k === 'l') {
+      const t = targetTile();
+      if (t?.player) { t.player.goLive(); paintBehind(t); }
+    } else if (k === 'k') {
+      const t = targetTile();
+      if (t?.stream.platform === 'twitch' && t.player) saveClip(t.stream);
+      else toast('Clips work on Twitch streams in the lightweight player.');
     } else if (k === 'p') {
       if (hoveredKey) popOut(hoveredKey);
     } else if (k === 'r') {
@@ -1450,6 +1564,18 @@
     if (k === 'showKick') { applyKick(); renderAccounts(); }
     if (k === 'liveAlerts') paintBell();
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
+    if (k === 'backgroundAudio' || k === 'duckLevel') {
+      for (const x of streams) {
+        if (S.backgroundAudio === 'duck' && x.muted && streams.some((y) => !y.muted && !y.ducked)) { x.muted = false; x.ducked = true; }
+        else if (S.backgroundAudio !== 'duck' && x.ducked) { x.ducked = false; x.muted = true; }
+      }
+      for (const t of tiles.values()) applyMute(t);
+      persistStreams();
+    }
+    if (k === 'rewindSeconds') {
+      for (const [key, t] of tiles) if (t.player) { t.destroy(); tiles.delete(key); }
+      renderStage();
+    }
     if (k === 'twitchPlayer' || k === 'kickPlayer') {
       const plat = k === 'twitchPlayer' ? 'twitch' : 'kick';
       for (const [key, t] of tiles) if (t.stream.platform === plat) { delete t.stream.forceEmbed; t.destroy(); tiles.delete(key); }
@@ -1605,15 +1731,36 @@
     el.textContent = '';
     if (t.stream.platform === 'youtube') { el.hidden = true; return; }
     const i = streamInfo.get(t.stream.platform === 'kick' ? 'kick:' + t.stream.id : t.stream.id);
-    if (!i) { el.hidden = true; return; }
-    el.hidden = false;
-    if (!i.live) { el.append(h('div', { class: 'ti-meta', text: 'Offline' })); return; }
-    el.append(
-      h('div', { class: 'ti-title', text: i.title || '', title: i.title || '' }),
-      h('div', { class: 'ti-meta' },
-        i.game ? h('span', { text: i.game }) : null,
-        h('span', { class: 'ti-viewers', text: fmtViewers(i.viewers) + ' viewers' }),
-        i.startedAt ? h('span', { text: 'Live ' + fmtUptime(i.startedAt) }) : null));
+    if (i && !i.live) { el.hidden = false; el.append(h('div', { class: 'ti-meta', text: 'Offline' })); return; }
+    if (i) {
+      el.append(
+        h('div', { class: 'ti-title', text: i.title || '', title: i.title || '' }),
+        h('div', { class: 'ti-meta' },
+          i.game ? h('span', { text: i.game }) : null,
+          h('span', { class: 'ti-viewers', text: fmtViewers(i.viewers) + ' viewers' }),
+          i.startedAt ? h('span', { text: 'Live ' + fmtUptime(i.startedAt) }) : null));
+    }
+    // NoPixel: where they are, and who else is in the same scene.
+    let rp = null;
+    try { rp = RP; } catch {} // not set up yet on the very first paint
+    if (t.stream.platform === 'twitch' && rp) {
+      const loc = rp.location(t.stream.id);
+      const sc = rp.sceneFor(t.stream.id);
+      const inView = new Set(streams.filter((x) => x.platform === 'twitch').map((x) => x.id));
+      const others = sc ? sc.people.filter((x) => x.login !== t.stream.id) : [];
+      const missing = others.filter((x) => !inView.has(x.login));
+      if (loc?.area) {
+        el.append(h('div', { class: 'ti-scene' },
+          h('span', { text: '📍 ' + loc.area + (others.length ? ` · with ${others.slice(0, 3).map((x) => x.name).join(', ')}${others.length > 3 ? ` +${others.length - 3}` : ''}` : '') }),
+          missing.length ? h('button', { class: 'ti-scene-add', text: `+ Add ${missing.length} from this scene`, onclick: (e) => {
+            e.stopPropagation();
+            for (const x of missing) addStream({ platform: 'twitch', id: x.login, label: x.name });
+            toast(`Added ${missing.length} from ${loc.area}.`);
+          } }) : null));
+      }
+      t.el.classList.toggle('in-scene', missing.length > 0);
+    }
+    el.hidden = !el.childElementCount;
   }
   function paintAllTileInfo() { for (const t of tiles.values()) paintTileInfo(t); }
   function absorbInfo(list) {
@@ -1788,6 +1935,34 @@
       return h('span', { class: 'rp-area' + (l.stale ? ' stale' : ''), title: `Read from their stream ${ago(l.at)}`, text: '📍 ' + l.area });
     };
 
+    // ---- Scenes: 2+ NoPixel streamers in the same area right now ---------------
+    function scenes() {
+      const byArea = new Map();
+      for (const x of live) {
+        const l = locations.get(x.login);
+        if (!l?.area || l.stale || Date.now() - (l.at || 0) > 12 * 60 * 1000) continue;
+        if (!byArea.has(l.area)) byArea.set(l.area, { area: l.area, region: l.region, people: [] });
+        byArea.get(l.area).people.push(x);
+      }
+      return [...byArea.values()].filter((a) => a.people.length >= 2)
+        .sort((a, b) => b.people.length - a.people.length || b.people.reduce((n, x) => n + x.viewers, 0) - a.people.reduce((n, x) => n + x.viewers, 0));
+    }
+    function renderScenes(body) {
+      const list = scenes();
+      if (!list.length) return;
+      body.append(h('h2', { class: 'rp-section', text: `Scenes now · ${list.length}` }));
+      const row = h('div', { class: 'rp-scenes' });
+      for (const sc of list.slice(0, 12)) {
+        const people = sc.people.sort((a, b) => b.viewers - a.viewers);
+        row.append(h('div', { class: 'rp-scene' },
+          h('div', { class: 'rp-g-top' }, h('b', { text: '📍 ' + sc.area }), h('span', { class: 'muted small', text: `${people.length} streamers` })),
+          h('div', { class: 'rp-g-av' }, ...people.slice(0, 8).map((x) => x.avatar ? h('img', { src: x.avatar, title: x.name, alt: '' }) : h('span', { title: x.name }))),
+          h('div', { class: 'rp-sc-names', text: people.map((x) => x.name).join(', ') }),
+          h('div', { class: 'rp-g-act' }, h('button', { class: 'btn btn-accent', text: 'Watch scene', onclick: () => watchAll(people.map((x) => x.login), sc.area) }))));
+      }
+      body.append(row);
+    }
+
     // ---- Groups --------------------------------------------------------------
     function renderGroups(body, q) {
       const gs = groups();
@@ -1872,6 +2047,7 @@
       if (view === 'areas') {
         renderAreas(body, L, added);
       } else {
+        if (!q) renderScenes(body);
         renderGroups(body, q);
         body.append(h('h2', { class: 'rp-section', text: `Live now · ${L.length}` }));
         const grid = h('div', { class: 'rp-grid' });
@@ -1961,10 +2137,26 @@
     let renderTimer = null;
     prism.onNopixelLocation((d) => {
       locations.set(d.login, d);
+      if (typeof paintAllTileInfo === 'function') paintAllTileInfo();
       if (currentView !== 'rp') return;
       clearTimeout(renderTimer);
       renderTimer = setTimeout(render, 400);
     });
+
+    // Keep reading areas in the background (for scene chips in multi-view),
+    // when you're watching Twitch streams and it's turned on in Settings.
+    async function background() {
+      if (!S.npBackgroundAreas || currentView === 'rp') return;
+      if (!streams.some((x) => x.platform === 'twitch')) return;
+      const r = await prism.nopixelStreams(false).catch(() => null);
+      if (!r || r.error) return;
+      live = r.live || live; offline = r.offline || offline; fetchedAt = r.at || fetchedAt;
+      const known = await prism.nopixelLocate([...live].sort((a, b) => b.viewers - a.viewers).map((x) => x.login)).catch(() => ({}));
+      for (const [l, v] of Object.entries(known || {})) locations.set(l, v);
+      if (typeof paintAllTileInfo === 'function') paintAllTileInfo();
+    }
+    setTimeout(background, 20000);
+    setInterval(background, 4 * 60 * 1000);
 
     $('#rp-search').addEventListener('input', render);
     $('#rp-sort').addEventListener('change', () => { save({ rpSort: $('#rp-sort').value }); render(); });
@@ -1995,6 +2187,8 @@
     });
 
     return {
+      location: (login) => locations.get(login),
+      sceneFor(login) { return scenes().find((sc) => sc.people.some((x) => x.login === login)) || null; },
       show() {
         $('#rp-sort').value = S.rpSort || 'viewers';
         if (Date.now() - fetchedAt > 60000) load(false); else render();
@@ -2173,6 +2367,7 @@
   }
   $('#news-btn').addEventListener('click', openNews);
   $('#open-news').addEventListener('click', openNews);
+  $('#open-clips').addEventListener('click', () => prism.openClipsFolder());
   $('#news-close').addEventListener('click', () => ($('#news').hidden = true));
   $('#news').addEventListener('click', (e) => { if (e.target.id === 'news') $('#news').hidden = true; });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#news').hidden = true; });

@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.8.0',
+    date: 'Nov 4, 2026',
+    items: [
+      'Rewind: jump back on any stream with ⟲ (or ← and →, Shift for 30 seconds). A "Go live" button appears while you\'re behind; press L to jump back. Set how much to keep in Settings → Rewind & clips.',
+      'Clips: ✂ on a Twitch stream (or K) saves the last minute as a video in Videos → Prism Clips.',
+      'Scenes: when several NoPixel streamers are in the same area, the NoPixel tab shows the scene with Watch scene, and multi-view tiles show who else is there with a button to add them.',
+      'Mixer: sliders for every stream, Solo, and Mute all. Choose whether the other streams are muted or quiet in the background when one has the sound.'
+    ]
+  },
+  {
     version: '0.7.1',
     date: 'Nov 4, 2026',
     items: [

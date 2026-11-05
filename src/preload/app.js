@@ -38,7 +38,9 @@ contextBridge.exposeInMainWorld('prism', {
   twitchStream: {
     master: (login) => ipcRenderer.invoke('twitch:stream-master', login),
     playlist: (login, url) => ipcRenderer.invoke('twitch:stream-playlist', login, url),
-    forget: (login) => ipcRenderer.send('twitch:stream-forget', login)
+    forget: (login) => ipcRenderer.send('twitch:stream-forget', login),
+    clip: (login, seconds) => ipcRenderer.invoke('twitch:clip', login, seconds),
+    showClip: (file) => ipcRenderer.invoke('clip:show', file)
   },
   twitchSearch: (q) => ipcRenderer.invoke('twitch:search', q),
   twitchFollowing: () => ipcRenderer.invoke('twitch:following'),
@@ -64,5 +66,6 @@ contextBridge.exposeInMainWorld('prism', {
     onReturn: on('mini:return')
   },
   youtubeResolveLive: (url) => ipcRenderer.invoke('youtube:resolve-live', url),
-  openExternal: (url) => ipcRenderer.invoke('open-external', url)
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  openClipsFolder: () => ipcRenderer.invoke('clip:folder')
 });

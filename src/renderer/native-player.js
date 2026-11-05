@@ -46,7 +46,8 @@
   // Plays Twitch (kind 'twitch', playlists through Prism's backend for tokens
   // and ad handling) or Kick (kind 'kick', direct playback URL).
   class NativeTwitchPlayer {
-    constructor(login, { onStatus, onFatal, onLevels, kind = 'twitch' } = {}) {
+    constructor(login, { onStatus, onFatal, onLevels, kind = 'twitch', rewindSeconds = 60 } = {}) {
+      this.rewindSeconds = rewindSeconds;
       this.login = login;
       this.kind = kind;
       this.onStatus = onStatus || (() => {});
@@ -88,7 +89,8 @@
         maxBufferLength: 8,
         maxMaxBufferLength: 16,
         maxBufferSize: 16 * 1000 * 1000,
-        backBufferLength: 0,
+        // Video kept behind the playhead, so you can rewind (0 = no rewind).
+        backBufferLength: this.rewindSeconds,
         liveSyncDurationCount: 3,
         liveMaxLatencyDurationCount: 8,
         // Pick a quality that fits the tile, so small tiles don't decode 1080p.
@@ -152,6 +154,30 @@
       }
       hls.currentLevel = idx;
     }
+
+    // ---- Rewind ----------------------------------------------------------
+    liveEdge() { return this.hls?.liveSyncPosition ?? (this.video.buffered.length ? this.video.buffered.end(this.video.buffered.length - 1) : 0); }
+    earliest() { return this.video.buffered.length ? this.video.buffered.start(0) : this.video.currentTime; }
+    behind() { return Math.max(0, this.liveEdge() - this.video.currentTime); }
+    seekBy(sec) {
+      if (!this.hls) return 0;
+      const target = Math.max(this.earliest() + 0.5, Math.min(this.liveEdge(), this.video.currentTime + sec));
+      // While rewound, don't let the player jump back to live by itself.
+      this.hls.config.liveMaxLatencyDurationCount = Infinity;
+      this.hls.config.liveMaxLatencyDuration = undefined;
+      this.video.currentTime = target;
+      this.video.play().catch(() => {});
+      if (this.behind() < 2) this.goLive();
+      return this.behind();
+    }
+    goLive() {
+      if (!this.hls) return;
+      this.hls.config.liveMaxLatencyDurationCount = 8;
+      const edge = this.hls.liveSyncPosition;
+      if (edge) this.video.currentTime = edge;
+      this.video.play().catch(() => {});
+    }
+    canRewind() { return this.rewindSeconds > 0 && this.video.currentTime - this.earliest() > 3; }
 
     setMuted(m) { this.video.muted = m; }
     setVolume(v) { this.video.volume = Math.max(0, Math.min(1, v)); }

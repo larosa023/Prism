@@ -12,6 +12,9 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Go-live alerts**: a Windows notification when someone you follow goes live; click it to watch. Channels on your auto-add list join multi-view by themselves.
 - **Stream info on tiles**: hover a Twitch tile for its title, game, viewers and uptime.
 - **Saved layouts**: save a set of streams and its layout under a name and reopen it in one click.
+- **Rewind & clips**: ⟲ or ←/→ to jump back on a stream, L for live; ✂ or K saves the last minute of a Twitch stream to Videos → Prism Clips.
+- **Mixer**: volume for every stream, Solo, Mute all, and background streams muted or quiet.
+- **NoPixel scenes**: see when several streamers are in the same area and watch every POV at once.
 - **Priority stream**: Ctrl + click a stream to make it the big one, with the sound and its chat; Ctrl + click again for the grid.
 - **What's new**: patch notes open once after each update, and any time from the ✨ button or Settings → Updates.
 - **Drag to rearrange**: grab a stream (anywhere on the video, or its ⠿ handle) and drop it on another tile to swap them (onto the big one in Focus to make it the main stream).

@@ -56,6 +56,10 @@
               <button data-layout="focus">Focus</button>
             </div>
             <span class="stage-count" id="stage-count"></span>
+            <div class="mixer-wrap">
+              <button class="btn btn-ghost" id="mixer-btn">Mixer</button>
+              <div id="mixer-panel" class="mixer-panel" hidden></div>
+            </div>
             <div class="layouts-wrap">
               <button class="btn btn-ghost" id="layouts-btn">Layouts ▾</button>
               <div id="layouts-panel" class="layouts-panel" hidden>
@@ -199,6 +203,12 @@
         </div>
 
         <div class="card">
+          <h3>NoPixel</h3>
+          <label class="row"><span><b>Read areas in the background</b><small>Every few minutes, so multi-view can show where your NoPixel streams are and who else is in the same scene. Uses a little CPU.</small></span>
+            <input type="checkbox" class="switch" data-setting="npBackgroundAreas"></label>
+        </div>
+
+        <div class="card">
           <h3>Site tweaks</h3>
           <label class="row"><span><b>Twitch sidebar previews</b><small>Hover a live channel in Twitch's left sidebar to preview it.</small></span>
             <select data-setting="twitchPreviews">
@@ -233,6 +243,19 @@
         </div>
 
         <div class="card">
+          <h3>Rewind &amp; clips</h3>
+          <label class="row"><span><b>Rewind</b><small>How much video each stream keeps so you can jump back (⟲ on a stream, or ← →). More uses a bit more memory.</small></span>
+            <select data-setting="rewindSeconds" data-number>
+              <option value="0">Off</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option>
+            </select></label>
+          <label class="row"><span><b>Clip length</b><small>✂ on a Twitch stream (or K) saves this much as a video in Videos → Prism Clips.</small></span>
+            <select data-setting="clipSeconds" data-number>
+              <option value="30">30 seconds</option><option value="60">1 minute</option><option value="90">90 seconds</option><option value="120">2 minutes</option>
+            </select></label>
+          <div class="actions"><button class="btn" id="open-clips">Open clips folder</button></div>
+        </div>
+
+        <div class="card">
           <h3>Performance</h3>
           <label class="row"><span><b>Twitch player</b><small>The lightweight player uses far less memory, and handles ads itself. Twitch's player is the full official one.</small></span>
             <select data-setting="twitchPlayer">
@@ -247,8 +270,17 @@
             </select></label>
           <label class="row"><span><b>Unload idle tabs</b><small>Frees memory from a platform tab after 2 minutes away (unless it's playing sound).</small></span>
             <input type="checkbox" class="switch" data-setting="unloadInactiveTabs"></label>
-          <label class="row"><span><b>One stream with sound</b><small>Unmuting a multi-view stream mutes the others.</small></span>
+          <label class="row"><span><b>One stream with sound</b><small>Giving a stream the sound turns the others down.</small></span>
             <input type="checkbox" class="switch" data-setting="singleAudio"></label>
+          <label class="row"><span><b>Other streams</b><small>What the rest do when one has the sound: muted, or quiet in the background.</small></span>
+            <select data-setting="backgroundAudio">
+              <option value="mute">Muted</option>
+              <option value="duck">Quiet (background)</option>
+            </select></label>
+          <label class="row"><span><b>How quiet</b><small>Background volume when "Quiet" is on.</small></span>
+            <select data-setting="duckLevel" data-number>
+              <option value="0.1">10%</option><option value="0.2">20%</option><option value="0.3">30%</option><option value="0.5">50%</option>
+            </select></label>
         </div>
 
         <div class="card">
@@ -262,6 +294,9 @@
             <div class="k"><kbd>R</kbd></div><span>Reload the stream under the mouse</span>
             <div class="k"><kbd>P</kbd></div><span>Pop the stream under the mouse out into a mini player</span>
             <div class="k"><kbd>Ctrl</kbd>+<kbd>Click</kbd></div><span>Make a stream the priority: big, with sound and its chat (again: back to grid). On YouTube tiles, Ctrl + click the top bar</span>
+            <div class="k"><kbd>←</kbd> <kbd>→</kbd></div><span>Rewind / forward 10 seconds (Shift: 30) on the stream under the mouse</span>
+            <div class="k"><kbd>L</kbd></div><span>Back to live</span>
+            <div class="k"><kbd>K</kbd></div><span>Save a clip of the stream under the mouse</span>
             <div class="k"><kbd>Ctrl</kbd>+<kbd>L</kbd></div><span>Add a stream</span>
             <div class="k"><kbd>Esc</kbd></div><span>Close menus and cards</span>
           </div>

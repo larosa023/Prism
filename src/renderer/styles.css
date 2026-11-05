@@ -645,3 +645,31 @@ details.news-ver[open] summary::before { content: "▾"; }
 .news-ver ul { margin: 8px 0 0; padding-left: 20px; }
 .news-ver li { margin: 4px 0; line-height: 1.45; }
 .news-ver.current .news-title b { color: var(--accent-2); }
+
+/* ---- Rewind / clips -------------------------------------------------------- */
+.tile-behind { position: absolute; right: 8px; bottom: 32px; z-index: 3; border: 0; cursor: pointer;
+  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 6px; }
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast-act { border: 0; background: var(--accent); color: #fff; border-radius: 6px; padding: 3px 10px; cursor: pointer; font-weight: 600; }
+
+/* ---- Mixer -------------------------------------------------------------------- */
+.mixer-wrap { position: relative; }
+.mixer-panel { position: absolute; top: 32px; left: 0; z-index: 30; width: 440px; padding: 8px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.55); }
+.mx-row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 7px; }
+.mx-row:hover { background: var(--bg-3); }
+.mx-row.muted .mx-name, .mx-row.muted .mx-pct { color: var(--muted); }
+.mx-name { width: 110px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-vol { flex: 1; accent-color: var(--accent); }
+.mx-pct { width: 36px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+.mx-solo { height: 24px; padding: 0 9px; }
+.mx-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); margin-top: 6px; padding: 8px 4px 2px; flex-wrap: wrap; }
+
+/* ---- Scenes --------------------------------------------------------------------- */
+.rp-scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.rp-scene { background: linear-gradient(var(--bg-2), var(--bg-2)) padding-box, linear-gradient(135deg, var(--accent), transparent 70%) border-box;
+  border: 1px solid transparent; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.rp-sc-names { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ti-scene { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 12px; color: #fff; flex-wrap: wrap; }
+.ti-scene-add { pointer-events: auto; border: 0; cursor: pointer; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 8px; }
+.tile.in-scene .tile-label::after { content: "• scene"; color: var(--accent-2); margin-left: 6px; font-weight: 700; font-size: 10px; }

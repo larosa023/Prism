@@ -12,7 +12,8 @@ const DEFAULTS = {
   rpSort: 'viewers',
   npAdded: [],              // streamers you added to the NoPixel list
   npRemoved: [],            // streamers you took off it
-  npGroups: [],             // your groups: [{ id, name, members: [login] }]
+  npGroups: [],
+  npBackgroundAreas: true,  // keep reading NoPixel areas in the background (scene chips in multi-view)             // your groups: [{ id, name, members: [login] }]
 
   // Platforms
   showKick: false,          // Kick is hidden until turned on in Settings
@@ -43,12 +44,18 @@ const DEFAULTS = {
   liveAlertSound: true,
   autoAddChannels: [],      // logins that join multi-view on their own when they go live
 
+  // Rewind & clips
+  rewindSeconds: 60,        // video kept for rewinding each lightweight-player stream (0 = off)
+  clipSeconds: 60,          // length of a saved clip
+
   // Performance
   twitchPlayer: 'native',
   kickPlayer: 'native',     // 'native' = lightweight player for Kick too, 'embed' = Kick's player
   autoClaimPoints: true,    // claim Twitch channel-point bonuses automatically (when Twitch allows it)   // 'native' = Prism's lightweight player, 'embed' = Twitch's own player
   unloadInactiveTabs: true, // free RAM from browse tabs you're not looking at
   singleAudio: true,        // only one multi-view stream plays sound at a time
+  backgroundAudio: 'mute',  // the others: 'mute' or 'duck' (quiet)
+  duckLevel: 0.2,           // how quiet 'duck' is
   chatMaxLines: 250,
   chatFontSize: 13,
   thirdPartyEmotes: true,   // 7TV + BTTV emotes in Twitch chat

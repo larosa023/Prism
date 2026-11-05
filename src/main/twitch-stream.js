@@ -138,8 +138,31 @@ async function backupMediaPlaylist(login, state, currentUrl) {
 
 function stateFor(login) {
   let s = channels.get(login);
-  if (!s) { s = { variants: new Map(), backups: new Map(), inAd: false }; channels.set(login, s); }
+  if (!s) { s = { variants: new Map(), backups: new Map(), inAd: false, recent: [], seen: new Set() }; channels.set(login, s); }
   return s;
+}
+
+// Remember the last ~2 minutes of video segments the player was given, for clips.
+const KEEP_SECONDS = 130;
+function rememberSegments(state, text) {
+  let dur = 0;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('#EXTINF')) dur = parseFloat(line.slice(8)) || 2;
+    else if (line && !line.startsWith('#')) {
+      const uri = line.trim();
+      if (!state.seen.has(uri)) {
+        state.seen.add(uri);
+        state.recent.push({ uri, dur, at: Date.now() });
+      }
+      dur = 0;
+    }
+  }
+  let total = state.recent.reduce((a, x) => a + x.dur, 0);
+  while (total > KEEP_SECONDS && state.recent.length) {
+    const x = state.recent.shift();
+    state.seen.delete(x.uri);
+    total -= x.dur;
+  }
 }
 
 ipcMain.handle('twitch:stream-master', async (_e, login) => {
@@ -168,15 +191,58 @@ ipcMain.handle('twitch:stream-playlist', async (_e, login, url) => {
     if (r.status !== 200) return { status: r.status };
     if (!r.text.includes(AD_SIGNIFIER)) {
       state.inAd = false;
+      rememberSegments(state, r.text);
       return { text: r.text };
     }
     state.inAd = true;
     const backup = await backupMediaPlaylist(login, state, url);
-    if (backup) return { text: backup, ad: 'swapped' };
-    return { text: stripAds(r.text).text, ad: 'stripped' };
+    if (backup) { rememberSegments(state, backup); return { text: backup, ad: 'swapped' }; }
+    const stripped = stripAds(r.text).text;
+    rememberSegments(state, stripped);
+    return { text: stripped, ad: 'stripped' };
   } catch (e) {
     return { error: e.message };
   }
+});
+
+// Save the last N seconds of a stream as a video file (MPEG-TS, plays in
+// Windows Media Player, VLC and most editors).
+ipcMain.handle('twitch:clip', async (_e, login, seconds) => {
+  const { app } = require('electron');
+  const fs = require('fs');
+  const path = require('path');
+  login = String(login).toLowerCase();
+  const state = channels.get(login);
+  if (!state || !state.recent.length) return { error: "Nothing to clip yet. Let the stream play for a bit first." };
+  const want = Math.max(10, Math.min(120, Number(seconds) || 60));
+  const picked = [];
+  let total = 0;
+  for (let i = state.recent.length - 1; i >= 0 && total < want; i--) { picked.unshift(state.recent[i]); total += state.recent[i].dur; }
+  const dir = path.join(app.getPath('videos'), 'Prism Clips');
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+  const file = path.join(dir, `${login} ${stamp}.ts`);
+  const out = fs.createWriteStream(file);
+  let saved = 0;
+  try {
+    for (const seg of picked) {
+      const res = await net.fetch(seg.uri);
+      if (!res.ok) continue; // a segment that's no longer available is skipped
+      out.write(Buffer.from(await res.arrayBuffer()));
+      saved += seg.dur;
+    }
+  } finally {
+    await new Promise((r) => out.end(r));
+  }
+  if (!saved) { try { fs.unlinkSync(file); } catch {} return { error: "Twitch didn't hand back the video for that clip." }; }
+  return { file, seconds: Math.round(saved) };
+});
+ipcMain.handle('clip:show', (_e, file) => require('electron').shell.showItemInFolder(file));
+ipcMain.handle('clip:folder', () => {
+  const { app, shell } = require('electron');
+  const dir = require('path').join(app.getPath('videos'), 'Prism Clips');
+  require('fs').mkdirSync(dir, { recursive: true });
+  return shell.openPath(dir);
 });
 
 ipcMain.on('twitch:stream-forget', (_e, login) => channels.delete(String(login).toLowerCase()));
