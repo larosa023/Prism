@@ -282,6 +282,17 @@
       media.draggable = false;
       media.addEventListener('pointerdown', (e) => startTileDrag(e, key));
     }
+    // Ctrl + click: make this the priority stream (big, with sound and its chat).
+    // Site players (YouTube, Twitch's player) take their own clicks, so for
+    // those Ctrl + click works on the tile's top bar.
+    const prioClick = (e) => {
+      if (!e.ctrlKey || e.button !== 0) return;
+      if (e.target.closest('button, input, select')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPriority(key);
+    };
+    t.el.addEventListener('pointerdown', prioClick, true);
     paintTileInfo(t);
     tiles.set(key, t);
     applyMute(t);
@@ -376,6 +387,7 @@
 
   function setLayout(mode) {
     S.layout = mode;
+    setTimeout(() => paintPriority?.(), 0);
     $$('#layout-seg button').forEach((b) => b.classList.toggle('on', b.dataset.layout === mode));
     save({ layout: mode });
     layout();
@@ -416,10 +428,37 @@
     markLive();
   }
 
+  // ---- Priority stream (Ctrl + click) -------------------------------------
+  let prioKey = null;
+  function setPriority(key) {
+    const s = streams.find((x) => keyOf(x) === key);
+    if (!s) return;
+    if (prioKey === key && S.layout === 'focus') {
+      // Ctrl + click the priority stream again: back to the grid.
+      prioKey = null;
+      setLayout('grid');
+      paintPriority();
+      toast('Back to the grid.');
+      return;
+    }
+    prioKey = key;
+    focusKey = key;
+    for (const x of streams) x.muted = keyOf(x) !== key;
+    for (const t of tiles.values()) applyMute(t);
+    persistStreams();
+    if (S.layout !== 'focus') setLayout('focus'); else layout();
+    if (!s.chatOff) setChat(key);
+    paintPriority();
+    toast(`${s.label || s.id} is now the priority stream.`);
+  }
+  function paintPriority() {
+    for (const [k, t] of tiles) t.el.classList.toggle('prio', k === prioKey && S.layout === 'focus');
+  }
+
   // ---- Drag a tile's name to move it -------------------------------------
   let hoveredKey = null;
   function startTileDrag(e, key) {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || e.ctrlKey) return;
     if (e.target.closest('button, input, select') && !e.target.closest('.tile-grip')) return;
     if (visibleStreams().filter((x) => !x.popped).length < 2) return; // nothing to swap with
     e.preventDefault();
@@ -2109,6 +2148,36 @@
   navTabs.addEventListener('drop', (e) => e.preventDefault());
 
   // =========================================================================
+  // What's new (patch notes): opens once after each update
+  // =========================================================================
+  function renderNews() {
+    const list = $('#news-list');
+    list.textContent = '';
+    const log = window.PRISM_CHANGELOG || [];
+    log.forEach((v, i) => {
+      const current = v.version === info.version;
+      const entry = h(i < 2 ? 'div' : 'details', { class: 'news-ver' + (current ? ' current' : '') },
+        h(i < 2 ? 'div' : 'summary', { class: 'news-title' },
+          h('b', { text: 'Version ' + v.version }),
+          current ? h('span', { class: 'news-tag', text: "You're on this" }) : null,
+          h('span', { class: 'muted small', text: v.date })),
+        h('ul', {}, ...v.items.map((t) => h('li', { text: t }))));
+      list.append(entry);
+    });
+  }
+  function openNews() {
+    renderNews();
+    $('#news').hidden = false;
+    $('.news-dot').hidden = true;
+    save({ lastSeenVersion: info.version });
+  }
+  $('#news-btn').addEventListener('click', openNews);
+  $('#open-news').addEventListener('click', openNews);
+  $('#news-close').addEventListener('click', () => ($('#news').hidden = true));
+  $('#news').addEventListener('click', (e) => { if (e.target.id === 'news') $('#news').hidden = true; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#news').hidden = true; });
+
+  // =========================================================================
   // Shortcuts & start-up
   // =========================================================================
   document.addEventListener('click', (e) => {
@@ -2136,6 +2205,8 @@
   if (S.thirdPartyEmotes) loadEmotes();
   paintSidebarIcons();
   applyNavOrder();
+  // Just updated (or first launch)? Show what's new once.
+  if (S.lastSeenVersion !== info.version && (window.PRISM_CHANGELOG || []).some((v) => v.version === info.version)) setTimeout(openNews, 800);
   paintBell();
   applyPanelSizes();
   refreshFollowing();

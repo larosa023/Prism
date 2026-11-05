@@ -618,3 +618,30 @@ img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }
 .bell-btn { width: 30px; padding: 0; display: grid; place-items: center; }
 .bell-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .bell-btn.off { color: var(--muted); opacity: .7; }
+
+/* ---- Priority stream ------------------------------------------------------ */
+.tile.prio { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.tile.prio::after { content: "PRIORITY"; position: absolute; left: 10px; bottom: 10px; z-index: 2; pointer-events: none;
+  font-size: 10px; font-weight: 700; letter-spacing: .6px; color: #fff; background: var(--accent); padding: 2px 7px; border-radius: 5px; opacity: .9; }
+.tile.prio:hover::after { opacity: 0; }
+
+/* ---- What's new ------------------------------------------------------------ */
+.news-btn { position: relative; width: 30px; padding: 0; font-size: 14px; }
+.news-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.news-overlay { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.5); display: grid; place-items: center; }
+.news-box { width: min(620px, 92vw); max-height: 80vh; display: flex; flex-direction: column; background: var(--bg-2);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.6); user-select: text; }
+.news-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+.news-head h2 { margin: 0; font-size: 17px; }
+.news-list { overflow-y: auto; padding: 8px 16px 16px; }
+.news-ver { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.news-ver:last-child { border-bottom: 0; }
+.news-title { display: flex; align-items: center; gap: 10px; cursor: default; }
+details.news-ver summary { cursor: pointer; list-style: none; }
+details.news-ver summary::-webkit-details-marker { display: none; }
+details.news-ver summary::before { content: "▸"; color: var(--muted); margin-right: -4px; }
+details.news-ver[open] summary::before { content: "▾"; }
+.news-tag { font-size: 10px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 4px; padding: 1px 6px; }
+.news-ver ul { margin: 8px 0 0; padding-left: 20px; }
+.news-ver li { margin: 4px 0; line-height: 1.45; }
+.news-ver.current .news-title b { color: var(--accent-2); }

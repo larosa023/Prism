@@ -21,6 +21,7 @@
       <span class="dot"></span>Following
     </button>
     <button id="bell-btn" class="btn btn-ghost bell-btn" title="Go-live notifications"></button>
+    <button id="news-btn" class="btn btn-ghost news-btn" title="What's new">✨<span class="news-dot" hidden></span></button>
     <div id="update-pill" class="update-pill" hidden></div>
     <div class="titlebar-spacer"></div>
   </header>
@@ -260,6 +261,7 @@
             <div class="k"><kbd>C</kbd></div><span>Show or hide chat</span>
             <div class="k"><kbd>R</kbd></div><span>Reload the stream under the mouse</span>
             <div class="k"><kbd>P</kbd></div><span>Pop the stream under the mouse out into a mini player</span>
+            <div class="k"><kbd>Ctrl</kbd>+<kbd>Click</kbd></div><span>Make a stream the priority: big, with sound and its chat (again: back to grid). On YouTube tiles, Ctrl + click the top bar</span>
             <div class="k"><kbd>Ctrl</kbd>+<kbd>L</kbd></div><span>Add a stream</span>
             <div class="k"><kbd>Esc</kbd></div><span>Close menus and cards</span>
           </div>
@@ -272,6 +274,7 @@
             <input type="checkbox" class="switch" data-setting="autoUpdate"></label>
           <div class="actions">
             <button class="btn" id="check-updates">Check for updates</button>
+            <button class="btn" id="open-news">What's new</button>
             <button class="btn btn-accent" id="install-update" hidden>Restart to update</button>
             <span id="update-status" class="muted"></span>
           </div>
@@ -288,8 +291,16 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <div id="news" class="news-overlay" hidden>
+    <div class="news-box" role="dialog" aria-label="What's new">
+      <div class="news-head"><h2>What's new in Prism</h2><button class="icon-btn" id="news-close" title="Close">✕</button></div>
+      <div id="news-list" class="news-list"></div>
+    </div>
+  </div>
+
   <script src="../../node_modules/hls.js/dist/hls.light.min.js"></script>
   <script src="native-player.js"></script>
+  <script src="changelog.js"></script>
   <script src="parse.js"></script>
   <script src="chat.js"></script>
   <script src="app.js"></script>

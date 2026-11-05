@@ -12,6 +12,8 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Go-live alerts**: a Windows notification when someone you follow goes live; click it to watch. Channels on your auto-add list join multi-view by themselves.
 - **Stream info on tiles**: hover a Twitch tile for its title, game, viewers and uptime.
 - **Saved layouts**: save a set of streams and its layout under a name and reopen it in one click.
+- **Priority stream**: Ctrl + click a stream to make it the big one, with the sound and its chat; Ctrl + click again for the grid.
+- **What's new**: patch notes open once after each update, and any time from the ✨ button or Settings → Updates.
 - **Drag to rearrange**: grab a stream (anywhere on the video, or its ⠿ handle) and drop it on another tile to swap them (onto the big one in Focus to make it the main stream).
 - **Pop-out mini player**: pop any stream into a small always-on-top window (⋯ menu or `P`); drag it anywhere, close it to put it back.
 - **Channel points**: your balance next to the chat box, with bonus auto-claim when Twitch allows it. Twitch only counts points and watch time in its own player, so switch a stream to "Twitch's player" from its ⋯ menu to earn them.
@@ -50,7 +52,7 @@ npm start
 
 ## Release a new version
 
-1. Bump `version` in `package.json` (for example `0.1.1`) and commit.
+1. Bump `version` in `package.json` (for example `0.1.1`), add an entry at the top of `src/renderer/changelog.js`, and commit.
 2. Tag and push: `git tag v0.1.1 && git push origin main --tags`.
 3. GitHub Actions builds `Prism-Setup-0.1.1.exe` and publishes the release. Installed copies update themselves.
 

@@ -67,6 +67,7 @@ const DEFAULTS = {
   sidebarWidth: 56,         // px, drag the sidebar's edge (wider shows names + live list)
   lastView: 'multiview',
   favicons: {},
+  lastSeenVersion: '',      // last version whose What's new was shown
   miniBounds: null          // where the pop-out player was last              // each site's own icon, picked up from its tab
 };
 
