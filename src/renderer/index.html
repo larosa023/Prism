@@ -51,6 +51,17 @@
               <button data-layout="focus">Focus</button>
             </div>
             <span class="stage-count" id="stage-count"></span>
+            <div class="layouts-wrap">
+              <button class="btn btn-ghost" id="layouts-btn">Layouts ▾</button>
+              <div id="layouts-panel" class="layouts-panel" hidden>
+                <form id="preset-form" class="preset-form" autocomplete="off">
+                  <input id="preset-name" type="text" maxlength="40" placeholder="Name this layout (e.g. RP crew)">
+                  <button class="btn btn-accent" type="submit">Save</button>
+                </form>
+                <div id="preset-list" class="preset-list"></div>
+              </div>
+            </div>
+            <span class="hint muted" id="drag-hint">Drag a stream's name to move it</span>
             <div class="grow"></div>
             <button class="btn btn-ghost" id="toggle-chat">Hide chat</button>
           </div>
@@ -68,7 +79,14 @@
           <div id="chat-body" class="chat-body"></div>
           <div id="chat-more" class="chat-more" hidden>New messages below</div>
           <form id="chat-form" class="chat-form" autocomplete="off" hidden>
-            <input id="chat-input" type="text" maxlength="500" spellcheck="true" placeholder="Send a message">
+            <div class="chat-input-row">
+              <input id="chat-input" type="text" maxlength="500" spellcheck="true" placeholder="Send a message">
+              <button type="button" class="icon-btn emote-btn" id="emote-btn" title="Emotes">☺</button>
+            </div>
+            <div id="emote-picker" class="emote-picker" hidden>
+              <input id="emote-search" type="text" spellcheck="false" placeholder="Search emotes">
+              <div id="emote-grid" class="emote-grid"></div>
+            </div>
           </form>
           <div id="chat-signin" class="chat-signin" hidden>
             Read-only. <a href="#" data-goto="twitch">Sign in on the Twitch tab</a> to chat.
@@ -134,6 +152,17 @@
         </div>
 
         <div class="card">
+          <h3>Go-live alerts</h3>
+          <label class="row"><span><b>Alert me when someone I follow goes live</b><small>A Windows notification; click it to add them to multi-view. Needs your Twitch sign-in.</small></span>
+            <input type="checkbox" class="switch" data-setting="liveAlerts"></label>
+          <label class="row"><span><b>Play the notification sound</b></span>
+            <input type="checkbox" class="switch" data-setting="liveAlertSound"></label>
+          <div class="sub">Add to multi-view automatically <small>(Twitch names, one per line; they join multi-view as soon as they go live)</small></div>
+          <textarea id="auto-add" rows="3" spellcheck="false" placeholder="crystalst&#10;nakkida"></textarea>
+          <div class="actions"><button class="btn btn-accent" id="save-auto-add">Save</button></div>
+        </div>
+
+        <div class="card">
           <h3>Site tweaks</h3>
           <label class="row"><span><b>Twitch sidebar previews</b><small>Hover a live channel in Twitch's left sidebar to preview it.</small></span>
             <select data-setting="twitchPreviews">
@@ -151,6 +180,10 @@
 
         <div class="card">
           <h3>Chat</h3>
+          <label class="row"><span><b>Sound when someone @mentions me</b><small>Plays a short chime when a message in an open chat mentions your name.</small></span>
+            <input type="checkbox" class="switch" data-setting="mentionSound"></label>
+          <label class="row"><span><b>Show recent messages when a chat opens</b><small>Loads the last 60 messages from the free recent-messages service, so chats don't start empty.</small></span>
+            <input type="checkbox" class="switch" data-setting="recentMessages"></label>
           <label class="row"><span><b>7TV, BTTV and FFZ emotes</b><small>Shows third-party emotes in Twitch chat.</small></span>
             <input type="checkbox" class="switch" data-setting="thirdPartyEmotes"></label>
           <label class="row"><span><b>Text size</b></span>
@@ -172,6 +205,21 @@
             <input type="checkbox" class="switch" data-setting="unloadInactiveTabs"></label>
           <label class="row"><span><b>One stream with sound</b><small>Unmuting a multi-view stream mutes the others.</small></span>
             <input type="checkbox" class="switch" data-setting="singleAudio"></label>
+        </div>
+
+        <div class="card">
+          <h3>Keyboard shortcuts</h3>
+          <div class="keys">
+            <div class="k"><kbd>1</kbd>–<kbd>9</kbd></div><span>Give that stream the sound (mutes the rest)</span>
+            <div class="k"><kbd>M</kbd></div><span>Mute everything / bring the sound back</span>
+            <div class="k"><kbd>F</kbd></div><span>Focus the stream under the mouse (again: back to grid)</span>
+            <div class="k"><kbd>G</kbd></div><span>Switch between Grid and Focus</span>
+            <div class="k"><kbd>C</kbd></div><span>Show or hide chat</span>
+            <div class="k"><kbd>R</kbd></div><span>Reload the stream under the mouse</span>
+            <div class="k"><kbd>Ctrl</kbd>+<kbd>L</kbd></div><span>Add a stream</span>
+            <div class="k"><kbd>Esc</kbd></div><span>Close menus and cards</span>
+          </div>
+          <p class="muted small">Shortcuts work in multi-view while you're not typing.</p>
         </div>
 
         <div class="card">

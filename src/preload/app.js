@@ -41,6 +41,9 @@ contextBridge.exposeInMainWorld('prism', {
   },
   twitchSearch: (q) => ipcRenderer.invoke('twitch:search', q),
   twitchFollowing: () => ipcRenderer.invoke('twitch:following'),
+  onFollowingUpdate: on('twitch:following-update'),
+  twitchStreamInfo: (logins) => ipcRenderer.invoke('twitch:stream-info', logins),
+  onAddStream: on('stream:add'),
   youtubeResolveLive: (url) => ipcRenderer.invoke('youtube:resolve-live', url),
   openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });

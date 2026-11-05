@@ -7,7 +7,13 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Lightweight Twitch player**: Twitch streams play in Prism's own video player (hls.js) instead of a separate player.twitch.tv page per stream, so several streams use a fraction of the memory. Quality fits the tile size automatically (or pick one per stream), only a few seconds of video are buffered, and ad breaks switch to Twitch's ad-free backup stream. If a stream won't play, that tile falls back to Twitch's own player. *Settings → Performance → Twitch player* switches back to Twitch's player for all streams.
 - **Multi-view**: watch several streams at once in a Grid or Focus layout (one big, the rest stacked). Mute, focus, reload, or remove each one from its hover bar. *One stream with sound* keeps audio from piling up.
 - **Lean Twitch chat**: a native chat that uses one connection for every channel, keeps a capped history, and shows Twitch, 7TV, BTTV and FFZ emotes. It's much lighter than loading twitch.tv's chat page per stream. If you're signed in, you can chat from it.
-- **Following**: see which Twitch channels you follow are live and add them with one click.
+- **Following**: see which Twitch channels you follow are live (in the sidebar and the Following panel) and add them with one click.
+- **Go-live alerts**: a Windows notification when someone you follow goes live; click it to watch. Channels on your auto-add list join multi-view by themselves.
+- **Stream info on tiles**: hover a Twitch tile for its title, game, viewers and uptime.
+- **Saved layouts**: save a set of streams and its layout under a name and reopen it in one click.
+- **Drag to rearrange**: drag a stream's name onto another tile to swap them (onto the big one in Focus to make it the main stream).
+- **Hotkeys**: `1`–`9` sound for that stream, `M` mute, `F` focus, `G` grid/focus, `C` chat, `R` reload.
+- **Chat extras**: recent messages when a chat opens, click a name to see everything they said, Tab completion for emotes and @names, an emote picker, and a chime when you're @mentioned.
 - **Built-in ad blocking**: uBlock Origin's filter lists (Ads, Badware, Privacy, Quick fixes, Unbreak) plus EasyList and EasyPrivacy. You can turn lists on or off, allow specific sites, and add your own rules in uBO syntax.
 - **Twitch ads**: by default Prism runs pixeltris's [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions) `video-swap-new` script on every Twitch page and player. It's the same script uBlock Origin loads with `userResourcesLocation` + `twitch.tv##+js(twitch-videoad)`. You can point it at another script (such as `vaft`), switch to Prism's simple built-in method, or turn it off.
 - **Twitch sidebar previews**: hover a live channel in Twitch's left sidebar to see a live video or thumbnail preview.

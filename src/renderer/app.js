@@ -194,8 +194,9 @@
     const muteBtn = h('button', { class: 'tile-btn', title: 'Sound', onclick: () => setMuted(key, !s.muted) });
     const mutedTag = h('div', { class: 'tile-muted', text: 'Muted' });
     const statusEl = h('div', { class: 'tile-status', hidden: true });
+    const infoEl = h('div', { class: 'tile-info' });
     const extra = h('div', { class: 'tile-extra' });
-    const t = { el: null, stream: s, ready: false, muteBtn, mutedTag, statusEl };
+    const t = { el: null, stream: s, ready: false, muteBtn, mutedTag, statusEl, infoEl };
 
     let media;
     if (useNative(s)) {
@@ -264,7 +265,11 @@
       h('button', { class: 'tile-btn', title: 'Reload', text: '⟳', onclick: () => t.reload() }),
       h('button', { class: 'tile-btn', title: 'Remove', text: '✕', onclick: () => removeStream(key) })
     );
-    t.el = h('div', { class: 'tile' }, media, bar, statusEl, mutedTag);
+    t.el = h('div', { class: 'tile', 'data-key': key }, media, bar, infoEl, statusEl, mutedTag);
+    t.el.addEventListener('mouseenter', () => (hoveredKey = key));
+    t.el.addEventListener('mouseleave', () => { if (hoveredKey === key) hoveredKey = null; });
+    bar.querySelector('.tile-label').addEventListener('pointerdown', (e) => startTileDrag(e, key));
+    paintTileInfo(t);
     tiles.set(key, t);
     applyMute(t);
     return t;
@@ -379,9 +384,10 @@
     const s = { platform: parsed.platform, id: parsed.id, label: parsed.label || parsed.id, muted: S.singleAudio && anyUnmuted };
     streams.push(s);
     persistStreams();
-    if (s.platform === 'twitch') chat.join(s.id);
+    if (s.platform === 'twitch') joinChat(s.id);
     renderStage();
     setChat(key);
+    if (s.platform === 'twitch') refreshStreamInfo();
     markLive();
   }
 
@@ -396,6 +402,163 @@
     renderStage();
     markLive();
   }
+
+  // ---- Drag a tile's name to move it -------------------------------------
+  let hoveredKey = null;
+  function startTileDrag(e, key) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY;
+    let dragging = false, target = null, shield = null, ghost = null;
+    const src = tiles.get(key);
+    const move = (ev) => {
+      if (!dragging) {
+        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+        dragging = true;
+        shield = h('div', { class: 'drag-shield move' });
+        ghost = h('div', { class: 'drag-ghost', text: src.stream.label || src.stream.id });
+        document.body.append(shield, ghost);
+        src.el.classList.add('dragging');
+      }
+      ghost.style.left = ev.clientX + 12 + 'px';
+      ghost.style.top = ev.clientY + 12 + 'px';
+      let found = null;
+      for (const [k, t] of tiles) {
+        if (k === key) continue;
+        const r = t.el.getBoundingClientRect();
+        if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) found = k;
+      }
+      if (found !== target) {
+        if (target) tiles.get(target)?.el.classList.remove('drop-target');
+        target = found;
+        if (target) tiles.get(target).el.classList.add('drop-target');
+      }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      if (!dragging) return;
+      shield.remove(); ghost.remove();
+      src.el.classList.remove('dragging');
+      if (target) {
+        tiles.get(target)?.el.classList.remove('drop-target');
+        if (S.layout === 'focus' && target === focusKey) focusKey = key; // dropped on the big one
+        else {
+          const a = streams.findIndex((s) => keyOf(s) === key);
+          const b = streams.findIndex((s) => keyOf(s) === target);
+          [streams[a], streams[b]] = [streams[b], streams[a]];
+        }
+        persistStreams();
+        renderStage();
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  // ---- Saved layouts --------------------------------------------------------
+  const layoutsPanel = $('#layouts-panel');
+  $('#layouts-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    layoutsPanel.hidden = !layoutsPanel.hidden;
+    if (!layoutsPanel.hidden) { renderPresets(); $('#preset-name').focus(); }
+  });
+  document.addEventListener('click', (e) => { if (!layoutsPanel.hidden && !e.target.closest('.layouts-wrap')) layoutsPanel.hidden = true; });
+
+  function renderPresets() {
+    const list = $('#preset-list');
+    list.textContent = '';
+    const presets = S.presets || [];
+    if (!presets.length) { list.append(h('div', { class: 'sug-hint', text: 'No saved layouts yet. Set up your streams, name it above and Save.' })); return; }
+    presets.forEach((p, i) => {
+      const names = p.streams.map((s) => s.label || s.id);
+      list.append(h('div', { class: 'preset' },
+        h('div', { class: 'preset-main', title: 'Open this layout', onclick: () => loadPreset(i) },
+          h('b', { text: p.name }),
+          h('span', { text: `${p.streams.length} stream${p.streams.length === 1 ? '' : 's'} · ${p.layout === 'focus' ? 'Focus' : 'Grid'} · ${names.slice(0, 4).join(', ')}${names.length > 4 ? '…' : ''}` })),
+        h('button', { class: 'icon-btn', title: 'Update with what\'s on screen now', text: '⟲', onclick: () => savePreset(p.name, i) }),
+        h('button', { class: 'icon-btn', title: 'Delete', text: '✕', onclick: () => {
+          S.presets = presets.filter((_, j) => j !== i);
+          save({ presets: S.presets });
+          renderPresets();
+        } })));
+    });
+  }
+  function savePreset(name, index) {
+    if (!streams.length) return toast('Add some streams first.');
+    const preset = {
+      name,
+      streams: streams.map(({ platform, id, label, muted, volume, quality, chatOff }) => ({ platform, id, label, muted, volume, quality, chatOff })),
+      layout: S.layout,
+      focus: focusKey
+    };
+    const presets = [...(S.presets || [])];
+    const existing = index ?? presets.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (existing >= 0) presets[existing] = preset; else presets.push(preset);
+    S.presets = presets;
+    save({ presets });
+    renderPresets();
+    toast(existing >= 0 ? `Updated "${name}".` : `Saved "${name}".`);
+  }
+  $('#preset-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('#preset-name').value.trim();
+    if (!name) return $('#preset-name').focus();
+    savePreset(name);
+    $('#preset-name').value = '';
+  });
+  function loadPreset(i) {
+    const p = (S.presets || [])[i];
+    if (!p) return;
+    for (const s of [...streams]) removeStream(keyOf(s));
+    streams = p.streams.map((s) => ({ ...s }));
+    focusKey = p.focus || null;
+    persistStreams();
+    for (const s of streams) if (s.platform === 'twitch' && !s.chatOff) joinChat(s.id);
+    if (p.layout && p.layout !== S.layout) setLayout(p.layout);
+    renderStage();
+    refreshStreamInfo();
+    layoutsPanel.hidden = true;
+    toast(`Opened "${p.name}".`);
+  }
+
+  // ---- Hotkeys ---------------------------------------------------------------
+  let lastSoundKey = null;
+  document.addEventListener('keydown', (e) => {
+    if (currentView !== 'multiview' || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    const vis = visibleStreams();
+    const k = e.key.toLowerCase();
+    if (/^[1-9]$/.test(k)) {
+      const s = vis[Number(k) - 1];
+      if (!s) return;
+      for (const x of streams) x.muted = keyOf(x) !== keyOf(s);
+      for (const t of tiles.values()) applyMute(t);
+      persistStreams();
+      toast(`Sound: ${s.label || s.id}`);
+    } else if (k === 'm') {
+      const playing = vis.find((s) => !s.muted);
+      if (playing) { lastSoundKey = keyOf(playing); for (const x of streams) x.muted = true; toast('Muted'); }
+      else {
+        const back = vis.find((s) => keyOf(s) === lastSoundKey) || vis[0];
+        if (back) { back.muted = false; toast(`Sound: ${back.label || back.id}`); }
+      }
+      for (const t of tiles.values()) applyMute(t);
+      persistStreams();
+    } else if (k === 'f') {
+      if (S.layout === 'focus' && (!hoveredKey || hoveredKey === focusKey)) setLayout('grid');
+      else { if (hoveredKey) focusKey = hoveredKey; setLayout('focus'); }
+    } else if (k === 'g') {
+      setLayout(S.layout === 'focus' ? 'grid' : 'focus');
+    } else if (k === 'c') {
+      $('#toggle-chat').click();
+    } else if (k === 'r') {
+      if (hoveredKey) tiles.get(hoveredKey)?.reload();
+    } else if (k === 'escape') {
+      layoutsPanel.hidden = true;
+    } else return;
+    e.preventDefault();
+  });
 
   // ---- Add box with channel suggestions ----------------------------------
   const addInput = $('#add-input');
@@ -517,7 +680,7 @@
   const chat = new PrismChat.TwitchChat({
     onState: ({ signedIn }) => { if (signedIn !== undefined) updateChatInput(); },
     onAuthFailed: () => { selfLogin = null; updateChatInput(); },
-    onMessage: (ch, m) => { logUserMessage(ch, m); queue('twitch:' + ch, () => PrismChat.renderMessage(m, msgOpts(ch))); },
+    onMessage: (ch, m) => { logUserMessage(ch, m); learnEmotes(m); checkMention(m); queue('twitch:' + ch, () => PrismChat.renderMessage(m, msgOpts(ch))); },
     onNotice: (ch, m) => queue('twitch:' + ch, () => {
       const el = h('div', { class: 'msg notice' }, h('div', { text: m.tags['system-msg'] || '' }));
       if (m.text) {
@@ -552,6 +715,53 @@
       selfLogin,
       extraEmote: S.thirdPartyEmotes ? (w) => p?.emotes?.get(w) || globalEmotes.get(w) : null
     };
+  }
+
+  function joinChat(ch) {
+    if (chat.channels.has(ch)) return;
+    chat.join(ch);
+    loadHistory(ch);
+  }
+
+  // Recent chat on join: the last messages from before you opened the stream,
+  // from the public recent-messages service (Twitch itself doesn't provide them).
+  async function loadHistory(ch) {
+    if (!S.recentMessages) return;
+    let lines = [];
+    try {
+      const r = await fetch(`https://recent-messages.robotty.de/api/v2/recent-messages/${encodeURIComponent(ch)}?limit=60`);
+      if (r.ok) lines = (await r.json()).messages || [];
+    } catch { return; }
+    if (!chat.channels.has(ch) || !lines.length) return;
+    const p = twitchPane(ch);
+    const seen = new Set([...p.el.querySelectorAll('.msg[data-id]')].map((m) => m.dataset.id));
+    const items = [];
+    for (const raw of lines) {
+      const m = PrismChat.parseLine(raw);
+      const at = Number(m.tags['rm-received-ts']) || Date.now();
+      if (m.command === 'PRIVMSG') {
+        if (m.tags.id && seen.has(m.tags.id)) continue;
+        items.push({ at, msg: { tags: m.tags, nick: m.nick, text: m.trailing || '' }, deleted: m.tags['rm-deleted'] === '1' });
+      } else if (m.command === 'USERNOTICE' && m.tags['system-msg']) {
+        items.push({ at, notice: m.tags['system-msg'] });
+      }
+    }
+    if (!items.length) return;
+    const frag = document.createDocumentFragment();
+    for (const it of items) {
+      const el = it.notice ? h('div', { class: 'msg notice', text: it.notice }) : PrismChat.renderMessage(it.msg, msgOpts(ch));
+      el.classList.add('history');
+      if (it.deleted) el.classList.add('deleted');
+      frag.append(el);
+    }
+    frag.append(h('div', { class: 'history-sep', text: 'Earlier messages above · live chat below' }));
+    p.el.querySelector('.chat-empty')?.remove();
+    p.el.prepend(frag);
+    const max = Number(S.chatMaxLines) || 250;
+    while (p.el.childElementCount > max + 1) p.el.firstElementChild.remove();
+    if (p.stick) p.el.scrollTop = p.el.scrollHeight;
+    // Add them to the name cards too, oldest first, ahead of anything said live.
+    for (const it of items.filter((x) => x.msg).reverse()) logUserMessage(ch, it.msg, { at: it.at, history: true, deleted: it.deleted });
   }
 
   function twitchPane(ch) {
@@ -618,12 +828,22 @@
   const userLogs = new Map();     // channel -> Map(login -> { name, color, badges, msgs: [] })
   let userCard = null;            // { ch, login }
 
-  function logUserMessage(ch, m) {
+  function logUserMessage(ch, m, opt = {}) {
     const login = (m.tags.login || m.nick || '').toLowerCase();
     if (!login) return;
     let byUser = userLogs.get(ch);
     if (!byUser) { byUser = new Map(); userLogs.set(ch, byUser); }
     let u = byUser.get(login);
+    if (opt.history) {
+      // Older messages go in front, and don't count as recent activity.
+      if (!u) { u = { msgs: [] }; byUser.set(login, u); }
+      u.name = u.name || m.tags['display-name'] || m.nick || login;
+      u.color = u.color || m.tags.color;
+      u.badges = u.badges || m.tags.badges;
+      if (u.msgs.length < USER_LOG_MAX) u.msgs.unshift({ at: opt.at, m, deleted: !!opt.deleted, history: true });
+      if (userCard && userCard.ch === ch && userCard.login === login) renderUserCard(false);
+      return;
+    }
     if (u) byUser.delete(login); // re-insert: most recent last
     else u = { msgs: [] };
     u.name = m.tags['display-name'] || m.nick || login;
@@ -670,6 +890,7 @@
       line.querySelectorAll('.badge').forEach((b) => b.remove());
       if (line.firstChild?.nodeType === 3) line.firstChild.remove(); // the ": " after the name
       line.prepend(h('span', { class: 'uc-time', text: fmtTime(x.at) }));
+      if (x.history) line.classList.add('history');
       if (x.deleted) line.classList.add('deleted');
       return line;
     };
@@ -697,7 +918,7 @@
 
     const newList = h('div', { class: 'uc-list' });
     if (u?.msgs.length) for (const x of u.msgs) newList.append(row(x));
-    else newList.append(h('div', { class: 'chat-empty', text: `No messages from ${name} since Prism joined #${ch}.` }));
+    else newList.append(h('div', { class: 'chat-empty', text: `No recent messages from ${name} in #${ch}.` }));
 
     cardEl.append(
       h('div', { class: 'uc-head' },
@@ -726,6 +947,139 @@
   }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && userCard) closeUserCard(); });
   document.addEventListener('click', (e) => { if (userCard && !cardEl.contains(e.target)) closeUserCard(); });
+
+  // ---- Chat typing helpers ---------------------------------------------------
+  // Twitch emotes seen in chat (their names come with each message).
+  const seenTwitchEmotes = new Map(); // name -> url
+  function learnEmotes(m) {
+    const tag = m.tags.emotes;
+    if (!tag) return;
+    const chars = Array.from(m.text);
+    for (const group of tag.split('/')) {
+      const [id, pos] = group.split(':');
+      if (!pos) continue;
+      const [a, b] = pos.split(',')[0].split('-').map(Number);
+      const name = chars.slice(a, b + 1).join('');
+      if (!name || seenTwitchEmotes.has(name)) continue;
+      seenTwitchEmotes.set(name, `https://static-cdn.jtvnw.net/emoticons/v2/${id}/default/dark/1.0`);
+      if (seenTwitchEmotes.size > 800) seenTwitchEmotes.delete(seenTwitchEmotes.keys().next().value);
+    }
+  }
+
+  // @mention chime
+  let audioCtx = null, lastChime = 0;
+  function checkMention(m) {
+    if (!S.mentionSound || !selfLogin) return;
+    if ((m.tags.login || m.nick || '').toLowerCase() === selfLogin) return;
+    if (!new RegExp(`(^|[^\\w])@?${selfLogin}([^\\w]|$)`, 'i').test(m.text)) return;
+    if (Date.now() - lastChime < 3000) return;
+    lastChime = Date.now();
+    try {
+      audioCtx = audioCtx || new AudioContext();
+      const t0 = audioCtx.currentTime;
+      for (const [f, at] of [[880, 0], [1320, 0.12]]) {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.type = 'sine'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0 + at);
+        g.gain.exponentialRampToValueAtTime(0.18, t0 + at + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + 0.25);
+        o.connect(g).connect(audioCtx.destination);
+        o.start(t0 + at); o.stop(t0 + at + 0.3);
+      }
+    } catch {}
+  }
+
+  function currentTwitchChannel() {
+    const s = chatStreams().find((x) => keyOf(x) === chatKey);
+    return s?.platform === 'twitch' ? s.id : null;
+  }
+  // Emotes you can use in this chat: channel (7TV/BTTV/FFZ), global, and Twitch ones seen in chat.
+  function emoteSets(ch) {
+    const sets = [];
+    const room = panes.get('twitch:' + ch)?.emotes;
+    if (S.thirdPartyEmotes && room?.size) sets.push(['This channel', room]);
+    if (seenTwitchEmotes.size) sets.push(['Twitch (seen in chat)', seenTwitchEmotes]);
+    if (S.thirdPartyEmotes && globalEmotes.size) sets.push(['Global 7TV / BTTV', globalEmotes]);
+    return sets;
+  }
+
+  // Tab completion: emotes and recent chatters (start with @ for names only).
+  const chatInput = $('#chat-input');
+  let completion = null; // { start, end, list, i }
+  for (const ev of ['input', 'blur', 'mousedown']) chatInput.addEventListener(ev, () => (completion = null));
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') { if (e.key !== 'Shift') completion = null; return; }
+    e.preventDefault();
+    const ch = currentTwitchChannel();
+    if (!ch) return;
+    if (!completion) {
+      const caret = chatInput.selectionStart;
+      const before = chatInput.value.slice(0, caret);
+      const m = before.match(/(\S+)$/);
+      if (!m) return;
+      const word = m[1];
+      const start = caret - word.length;
+      const atName = word.startsWith('@');
+      const q = (atName ? word.slice(1) : word).toLowerCase();
+      const list = [];
+      const seen = new Set();
+      const push = (v) => { const k = v.toLowerCase(); if (!seen.has(k) && k.startsWith(q) && k !== q) { seen.add(k); list.push(v); } };
+      if (!atName) for (const [, set] of emoteSets(ch)) for (const name of set.keys()) push(name);
+      // Recent chatters, most recent first.
+      const emoteCount = list.length;
+      const users = [...(userLogs.get(ch) || new Map()).values()].reverse();
+      for (const u of users) push(u.name);
+      // Emotes sorted shortest-first; names keep most-recent-first order.
+      const emotes = list.slice(0, emoteCount).sort((a, b) => a.length - b.length || a.localeCompare(b));
+      const names = list.slice(emoteCount).map((n) => (atName ? '@' + n : n));
+      const all = [...emotes, ...names];
+      if (!all.length) return;
+      completion = { start, end: caret, list: all, i: -1 };
+    }
+    const c = completion;
+    c.i = (c.i + (e.shiftKey ? -1 : 1) + c.list.length) % c.list.length;
+    const pick = c.list[c.i] + ' ';
+    chatInput.value = chatInput.value.slice(0, c.start) + pick + chatInput.value.slice(c.end);
+    c.end = c.start + pick.length;
+    chatInput.setSelectionRange(c.end, c.end);
+  });
+
+  // Emote picker
+  const picker = $('#emote-picker');
+  $('#emote-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    picker.hidden = !picker.hidden;
+    if (!picker.hidden) { $('#emote-search').value = ''; renderEmotePicker(); $('#emote-search').focus(); }
+  });
+  $('#emote-search').addEventListener('input', renderEmotePicker);
+  $('#emote-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { picker.hidden = true; chatInput.focus(); }
+    if (e.key === 'Enter') { e.preventDefault(); $('#emote-grid .eg-emote')?.click(); } // Enter picks the first match
+  });
+  document.addEventListener('click', (e) => { if (!picker.hidden && !picker.contains(e.target)) picker.hidden = true; });
+  function renderEmotePicker() {
+    const grid = $('#emote-grid');
+    grid.textContent = '';
+    const ch = currentTwitchChannel();
+    const q = $('#emote-search').value.trim().toLowerCase();
+    let shown = 0;
+    for (const [title, set] of emoteSets(ch)) {
+      const names = [...set.keys()].filter((n) => !q || n.toLowerCase().includes(q)).slice(0, 300);
+      if (!names.length) continue;
+      grid.append(h('div', { class: 'eg-title', text: `${title} · ${names.length}` }));
+      const row = h('div', { class: 'eg-set' });
+      for (const name of names) {
+        row.append(h('button', { type: 'button', class: 'eg-emote', title: name, onclick: () => {
+          const v = chatInput.value;
+          chatInput.value = v + (v && !v.endsWith(' ') ? ' ' : '') + name + ' ';
+          chatInput.focus();
+        } }, h('img', { src: set.get(name), alt: name, loading: 'lazy' })));
+        shown++;
+      }
+      grid.append(row);
+    }
+    if (!shown) grid.append(h('div', { class: 'sug-hint', text: q ? 'No emotes match.' : 'Emotes show up here once the chat has loaded.' }));
+  }
 
   // YouTube and Kick chats are their own pages; only the one you're viewing stays loaded.
   function webChatUrl(s) {
@@ -798,7 +1152,7 @@
     if (!s) return;
     s.chatOff = off;
     if (s.platform === 'twitch') {
-      if (off) { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); } else chat.join(s.id);
+      if (off) { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); } else joinChat(s.id);
     } else if (off) dropChatPane(key);
     persistStreams();
     if (!off) { chatKey = key; setChat(key); }
@@ -923,6 +1277,7 @@
     });
     $$('[data-list]').forEach((el) => (el.checked = !!S.filterLists[el.dataset.list]));
     $('#allowlist').value = (S.allowlist || []).join('\n');
+    $('#auto-add').value = (S.autoAddChannels || []).join('\n');
     $('#custom-filters').value = S.customFilters || '';
     $('#version').textContent = `Prism ${info.version}`;
     renderAccounts();
@@ -1005,6 +1360,12 @@
     renderStage();
   }
 
+  $('#save-auto-add').addEventListener('click', async () => {
+    const list = $('#auto-add').value.split(/[\s,]+/).map((v) => (parseStream(v)?.platform === 'twitch' ? parseStream(v).id : null)).filter(Boolean);
+    await save({ autoAddChannels: [...new Set(list)] });
+    $('#auto-add').value = S.autoAddChannels.join('\n');
+    toast(S.autoAddChannels.length ? `Auto-add saved for ${S.autoAddChannels.length} channel${S.autoAddChannels.length > 1 ? 's' : ''}.` : 'Auto-add cleared.');
+  });
   $('#save-filters').addEventListener('click', async () => {
     const allow = $('#allowlist').value.split(/\s+/).map((d) => d.trim().toLowerCase()
       .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '')).filter(Boolean);
@@ -1077,6 +1438,65 @@
   $('#install-update').addEventListener('click', () => prism.updater.install());
   $('#update-pill').addEventListener('click', () => {
     prism.updater.state().then((st) => (st.status === 'ready' ? prism.updater.install() : showView('settings')));
+  });
+
+  // =========================================================================
+  // Stream info on tiles (title, game, viewers, uptime)
+  // =========================================================================
+  const streamInfo = new Map(); // login -> info
+  const fmtUptime = (iso) => {
+    if (!iso) return '';
+    const m = Math.max(0, Math.floor((Date.now() - new Date(iso)) / 60000));
+    return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`;
+  };
+  function paintTileInfo(t) {
+    const el = t.infoEl;
+    if (!el) return;
+    el.textContent = '';
+    if (t.stream.platform !== 'twitch') { el.hidden = true; return; }
+    const i = streamInfo.get(t.stream.id);
+    if (!i) { el.hidden = true; return; }
+    el.hidden = false;
+    if (!i.live) { el.append(h('div', { class: 'ti-meta', text: 'Offline' })); return; }
+    el.append(
+      h('div', { class: 'ti-title', text: i.title || '', title: i.title || '' }),
+      h('div', { class: 'ti-meta' },
+        i.game ? h('span', { text: i.game }) : null,
+        h('span', { class: 'ti-viewers', text: fmtViewers(i.viewers) + ' viewers' }),
+        i.startedAt ? h('span', { text: 'Live ' + fmtUptime(i.startedAt) }) : null));
+  }
+  function paintAllTileInfo() { for (const t of tiles.values()) paintTileInfo(t); }
+  function absorbInfo(list) {
+    for (const c of list || []) {
+      const prev = streamInfo.get(c.login) || {};
+      streamInfo.set(c.login, { ...prev, live: true, title: c.title, viewers: c.viewers, game: c.game, startedAt: c.startedAt || prev.startedAt, name: c.name, avatar: c.avatar });
+    }
+  }
+  async function refreshStreamInfo() {
+    const logins = streams.filter((s) => s.platform === 'twitch').map((s) => s.id);
+    if (!logins.length) return;
+    const res = await prism.twitchStreamInfo(logins).catch(() => ({}));
+    for (const [login, i] of Object.entries(res)) streamInfo.set(login, i);
+    paintAllTileInfo();
+  }
+  setInterval(refreshStreamInfo, 60000);
+  setInterval(paintAllTileInfo, 30000); // keep uptime ticking
+
+  // Follow list pushed from the main process (also drives go-live alerts).
+  prism.onFollowingUpdate((r) => {
+    followingCache = r.live || [];
+    absorbInfo(followingCache);
+    renderSideLive();
+    paintAllTileInfo();
+    markLive();
+  });
+  // A go-live alert was clicked, or an auto-add channel went live.
+  prism.onAddStream((p) => {
+    const key = p.platform + ':' + p.id;
+    if (p.auto && streams.some((s) => keyOf(s) === key)) return;
+    addStream({ platform: p.platform, id: p.id, label: p.label });
+    if (currentView !== 'multiview') showView('multiview');
+    if (p.auto) toast(`${p.label} went live and was added to multi-view.`);
   });
 
   // =========================================================================
@@ -1162,6 +1582,8 @@
     try {
       const r = await prism.twitchFollowing();
       followingCache = r.live || [];
+      absorbInfo(followingCache);
+      paintAllTileInfo();
     } catch {}
     renderSideLive();
   }
@@ -1188,7 +1610,7 @@
   $('.nav-btn.kick').hidden = !S.showKick;
   $$('#layout-seg button').forEach((b) => b.classList.toggle('on', b.dataset.layout === S.layout));
   applyChatVisible();
-  for (const s of streams) if (s.platform === 'twitch' && !s.chatOff) chat.join(s.id);
+  for (const s of streams) if (s.platform === 'twitch' && !s.chatOff) joinChat(s.id);
   renderStage();
   showView(S.lastView && S.lastView !== 'settings' ? S.lastView : 'multiview');
   refreshChatAuth();
@@ -1196,5 +1618,6 @@
   paintSidebarIcons();
   applyPanelSizes();
   refreshFollowing();
+  refreshStreamInfo();
   prism.updater.state().then(showUpdater);
 })();

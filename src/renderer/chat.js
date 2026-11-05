@@ -296,5 +296,5 @@
     return el;
   }
 
-  window.PrismChat = { TwitchChat, globalEmotes, roomEmotes, renderMessage };
+  window.PrismChat = { TwitchChat, globalEmotes, roomEmotes, renderMessage, parseLine };
 })();

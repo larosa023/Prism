@@ -386,3 +386,78 @@ img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }
 .uc-time { color: var(--muted); font-size: 11px; margin-right: 8px; font-variant-numeric: tabular-nums; }
 .uc-actions { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--line); }
 .uc-ch { margin-left: auto; font-size: 12px; }
+
+/* ---- Stream info on tiles ----------------------------------------------- */
+.tile-info {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none;
+  padding: 26px 10px 8px; background: linear-gradient(transparent, rgba(0,0,0,.8));
+  opacity: 0; transition: opacity .15s;
+}
+.tile:hover .tile-info { opacity: 1; }
+.ti-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 60px; }
+.ti-meta { display: flex; gap: 10px; color: #c9c4d6; font-size: 12px; margin-top: 2px; flex-wrap: wrap; }
+.ti-viewers { color: #ff6b6b; }
+.tile:hover .tile-status { bottom: 52px; }
+
+.msg.history { opacity: .62; }
+.history-sep { text-align: center; font-size: 11px; color: var(--muted); margin: 6px 0; display: flex; align-items: center; gap: 8px; }
+.history-sep::before, .history-sep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* ---- Drag to rearrange -------------------------------------------------- */
+.tile-label { cursor: grab; pointer-events: auto; }
+.drag-shield.move { cursor: grabbing; }
+.drag-ghost {
+  position: fixed; z-index: 101; pointer-events: none; padding: 5px 10px; border-radius: 7px;
+  background: var(--accent); color: #fff; font-weight: 600; font-size: 12px; box-shadow: 0 8px 20px rgba(0,0,0,.5);
+}
+.tile.dragging { opacity: .45; }
+.tile.drop-target { outline: 3px solid var(--accent); outline-offset: -3px; }
+.hint { font-size: 12px; }
+
+/* ---- Saved layouts ------------------------------------------------------ */
+.layouts-wrap { position: relative; }
+.layouts-panel {
+  position: absolute; top: 32px; left: 0; z-index: 30; width: 360px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.55); padding: 8px;
+}
+.preset-form { display: flex; gap: 6px; margin-bottom: 6px; }
+.preset-form input { flex: 1; height: 28px; padding: 0 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; outline: none; }
+.preset-form input:focus { border-color: var(--accent); }
+.preset-list { display: grid; gap: 2px; max-height: 50vh; overflow-y: auto; }
+.preset { display: flex; align-items: center; gap: 4px; border-radius: 8px; }
+.preset:hover { background: var(--bg-3); }
+.preset-main { flex: 1; min-width: 0; padding: 7px 8px; cursor: pointer; }
+.preset-main b { display: block; }
+.preset-main span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- Keyboard shortcuts list -------------------------------------------- */
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; margin: 6px 0; }
+.keys > span { color: var(--text); }
+.keys kbd, kbd {
+  display: inline-block; min-width: 22px; text-align: center; padding: 1px 6px; border-radius: 5px; font: 12px Consolas, monospace;
+  background: var(--bg-3); border: 1px solid var(--line); border-bottom-width: 2px;
+}
+.keys .k { white-space: nowrap; color: var(--muted); }
+
+/* ---- Chat typing helpers ------------------------------------------------ */
+.chat-form { position: relative; }
+.chat-input-row { display: flex; gap: 6px; align-items: center; }
+.chat-input-row input { flex: 1; }
+.emote-btn { width: 34px; height: 34px; font-size: 18px; flex: none; }
+.emote-picker {
+  position: absolute; left: 8px; right: 8px; bottom: 52px; z-index: 14; height: 320px;
+  display: flex; flex-direction: column; background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: 0 14px 34px rgba(0,0,0,.55); padding: 8px;
+}
+.emote-picker input {
+  height: 30px; padding: 0 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; outline: none; margin-bottom: 6px;
+}
+.emote-picker input:focus { border-color: var(--accent); }
+.emote-grid { flex: 1; overflow-y: auto; }
+.emote-grid::-webkit-scrollbar { width: 8px; }
+.emote-grid::-webkit-scrollbar-thumb { background: #2c2c38; border-radius: 4px; }
+.eg-title { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; margin: 6px 2px 4px; }
+.eg-set { display: flex; flex-wrap: wrap; gap: 2px; }
+.eg-emote { width: 40px; height: 36px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; display: grid; place-items: center; }
+.eg-emote:hover { background: var(--bg-3); }
+.eg-emote img { max-width: 36px; max-height: 30px; }

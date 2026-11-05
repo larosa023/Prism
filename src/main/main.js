@@ -7,6 +7,7 @@ const adblock = require('./adblock');
 const updater = require('./updater');
 const twitchAds = require('./twitch-ads');
 require('./twitch-stream');
+const twitchLive = require('./twitch-live');
 
 // ---------------------------------------------------------------------------
 // Platforms. Each one gets its own saved session so sign-ins stick.
@@ -37,6 +38,7 @@ app.userAgentFallback = CHROME_UA;
 app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess,CalculateNativeWinOcclusion');
 
 let win = null;
+if (process.platform === 'win32') app.setAppUserModelId('com.larosa.prism');
 
 // Never show a crash dialog for a background hiccup (a failed download,
 // a dropped connection); log it and keep the app running.
@@ -240,37 +242,7 @@ ipcMain.handle('twitch:chat-auth', async () => {
   return { token: token.value, login: decodeURIComponent(login.value) };
 });
 
-// Live channels you follow on Twitch (uses your Twitch sign-in).
 const TWITCH_WEB_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
-ipcMain.handle('twitch:following', async () => {
-  const ses = session.fromPartition(PLATFORMS.twitch.partition);
-  const [token] = await ses.cookies.get({ url: 'https://www.twitch.tv', name: 'auth-token' }).catch(() => []);
-  if (!token) return { signedIn: false, live: [] };
-  const query = `query { currentUser { followedLiveUsers(first: 100) { nodes {
-    login displayName profileImageURL(width: 50)
-    stream { title viewersCount game { displayName } }
-  } } } }`;
-  try {
-    const res = await ses.fetch('https://gql.twitch.tv/gql', {
-      method: 'POST',
-      headers: { 'Client-Id': TWITCH_WEB_CLIENT_ID, Authorization: 'OAuth ' + token.value, 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ query })
-    });
-    const json = await res.json();
-    const nodes = json?.data?.currentUser?.followedLiveUsers?.nodes || [];
-    const live = nodes.filter((n) => n && n.stream).map((n) => ({
-      login: n.login,
-      name: n.displayName,
-      avatar: n.profileImageURL,
-      title: n.stream.title,
-      viewers: n.stream.viewersCount,
-      game: n.stream.game?.displayName || ''
-    })).sort((a, b) => b.viewers - a.viewers);
-    return { signedIn: true, live };
-  } catch (e) {
-    return { signedIn: true, live: [], error: e.message };
-  }
-});
 
 // Channel suggestions for the "Add a stream" box.
 // Asks Twitch three ways at once (exact name, search suggestions, channel
@@ -357,6 +329,10 @@ app.whenReady().then(async () => {
 
   twitchAds.init();
   createWindow();
+  twitchLive.init({
+    send,
+    focus: () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } }
+  });
   updater.init(send);
 
   // Build the ad blocker in the background; streams start right away.

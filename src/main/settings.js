@@ -28,6 +28,11 @@ const DEFAULTS = {
   twitchPreviews: 'video',  // hover previews in Twitch's sidebar: 'video' | 'image' | 'off'
   youtubeRowCount: 5,       // videos per row on YouTube (0 = YouTube's default)
 
+  // Alerts
+  liveAlerts: true,         // Windows notification when someone you follow goes live
+  liveAlertSound: true,
+  autoAddChannels: [],      // logins that join multi-view on their own when they go live
+
   // Performance
   twitchPlayer: 'native',   // 'native' = Prism's lightweight player, 'embed' = Twitch's own player
   unloadInactiveTabs: true, // free RAM from browse tabs you're not looking at
@@ -35,12 +40,15 @@ const DEFAULTS = {
   chatMaxLines: 250,
   chatFontSize: 13,
   thirdPartyEmotes: true,   // 7TV + BTTV emotes in Twitch chat
+  mentionSound: true,       // chime when someone @mentions you
+  recentMessages: true,     // load the last messages when a chat opens (recent-messages.robotty.de)
 
   // Updates
   autoUpdate: true,
 
   // Saved multi-view
   streams: [],              // [{ platform, id, label }]
+  presets: [],              // saved layouts: [{ name, streams, layout, focus }]
   layout: 'grid',           // 'grid' | 'focus'
   chatVisible: true,
   chatWidth: 340,           // px, drag the chat panel's edge
