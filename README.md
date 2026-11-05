@@ -8,7 +8,7 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Multi-view**: watch several streams at once in a Grid or Focus layout (one big, the rest stacked). Mute, focus, reload, or remove each one from its hover bar. *One stream with sound* keeps audio from piling up.
 - **Lean Twitch chat**: a native chat that uses one connection for every channel, keeps a capped history, and shows Twitch, 7TV, BTTV and FFZ emotes. It's much lighter than loading twitch.tv's chat page per stream. If you're signed in, you can chat from it.
 - **Following**: see which Twitch channels you follow are live (in the sidebar and the Following panel) and add them with one click.
-- **NoPixel tab**: every NoPixel streamer. Live ones are found across Twitch's whole GTA V directory (down to 0 viewers) with thumbnails, viewers, uptime and the character they're playing; offline ones come from a roster of everyone Prism has seen live on NoPixel, with their last character and when they were last live. Search, sort, filter to people you follow, and click a live stream to add it to multi-view.
+- **NoPixel tab**: every NoPixel streamer. Live ones are found across Twitch's whole GTA V directory: by "NoPixel" in the title or tags, or because they're on Prism's NoPixel roster (seen there before, your follows playing GTA V, or added by you). Each shows the character they're playing and their area (read from the HUD in their Twitch preview every few minutes). An **Areas** view groups everyone by part of the map; **Groups** you make show who's online and open them all in multi-view. Offline streamers show their last character and when they were last live.
 - **Go-live alerts**: a Windows notification when someone you follow goes live; click it to watch. Channels on your auto-add list join multi-view by themselves.
 - **Stream info on tiles**: hover a Twitch tile for its title, game, viewers and uptime.
 - **Saved layouts**: save a set of streams and its layout under a name and reopen it in one click.
@@ -25,6 +25,8 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Stays signed in**: each platform has its own saved session. You sign in on that platform's tab, and you can sign out from Settings.
 - **Platform tabs**: full Twitch, YouTube, TikTok and Kick sites. Use **+ Multi-view** on any channel or video page. Idle tabs unload after 2 minutes to free memory, unless they're playing sound.
 - **Kick toggle**: Kick stays hidden until you turn on *Settings → Platforms → Show Kick*.
+- **Google sign-in**: signing in to YouTube (or anything using Google) works inside Prism.
+- **Sidebar order**: drag the tabs on the left into any order. The bell at the top turns go-live notifications on or off.
 - **Themes**: Midnight, OLED black, Slate, Forest, Sunset, Rose and Light (*Settings → Theme*). Chat name colors adjust so they stay readable.
 - **Built-in updater**: checks GitHub Releases, downloads in the background, and installs on restart.
 

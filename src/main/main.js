@@ -9,6 +9,8 @@ const twitchAds = require('./twitch-ads');
 require('./twitch-stream');
 const twitchLive = require('./twitch-live');
 const extras = require('./extras');
+const npLocations = require('./np-locations');
+const hooks = require('./request-hooks');
 
 // ---------------------------------------------------------------------------
 // Platforms. Each one gets its own saved session so sign-ins stick.
@@ -37,6 +39,7 @@ app.userAgentFallback = CHROME_UA;
 
 // Lighter on memory: don't keep a spare renderer process warm.
 app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess,CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
 // Window and title-bar button colors for each theme.
 const THEMES = {
@@ -70,8 +73,28 @@ function hostMatches(host, list) {
   return list.some((d) => host === d || host.endsWith('.' + d));
 }
 
+// Google refuses sign-in from embedded browsers ("This browser or app may not
+// be secure"). On Google's sign-in pages only, Prism presents itself as a
+// regular Firefox browser: in the request headers here, and to the page's
+// scripts via the google-signin preload.
+const GOOGLE_SIGNIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
+const GOOGLE_SIGNIN_HOST = /^https:\/\/(accounts\.google\.com|accounts\.youtube\.com)\//;
+function googleSignInFix(ses) {
+  hooks.onBeforeSendHeaders(ses, (d, headers) => {
+    if (!GOOGLE_SIGNIN_HOST.test(d.url)) return;
+    for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k];
+    headers['User-Agent'] = GOOGLE_SIGNIN_UA;
+  });
+  try {
+    ses.registerPreloadScript({ type: 'frame', id: 'prism-google-signin', filePath: path.join(__dirname, '..', 'preload', 'google-signin.js') });
+  } catch {
+    ses.setPreloads([...ses.getPreloads(), path.join(__dirname, '..', 'preload', 'google-signin.js')]);
+  }
+}
+
 function setupSession(ses) {
   ses.setUserAgent(CHROME_UA);
+  googleSignInFix(ses);
   ses.setPermissionRequestHandler((_wc, permission, cb) => {
     cb(['fullscreen', 'clipboard-sanitized-write', 'pointerLock'].includes(permission));
   });
@@ -353,6 +376,7 @@ app.whenReady().then(async () => {
   twitchAds.init();
   createWindow();
   extras.init({ send });
+  npLocations.init({ send });
   twitchLive.init({
     send,
     focus: () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } }

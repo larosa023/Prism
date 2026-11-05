@@ -5,10 +5,14 @@ const path = require('path');
 
 const DEFAULTS = {
   // Look
+  navOrder: [],             // sidebar tab order (data-view names)
   theme: 'midnight',        // midnight, oled, slate, forest, sunset, rose, light
 
   // RP tab
   rpSort: 'viewers',
+  npAdded: [],              // streamers you added to the NoPixel list
+  npRemoved: [],            // streamers you took off it
+  npGroups: [],             // your groups: [{ id, name, members: [login] }]
 
   // Platforms
   showKick: false,          // Kick is hidden until turned on in Settings

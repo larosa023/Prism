@@ -20,13 +20,13 @@ async function authToken() {
 let integrity = null; // { token, deviceId, sessionId, version, at }
 const INTEGRITY_MAX_AGE = 10 * 60 * 60 * 1000;
 function watchTwitchHeaders() {
-  twitchSession().webRequest.onBeforeSendHeaders({ urls: ['*://gql.twitch.tv/*'] }, (d, cb) => {
+  require('./request-hooks').onBeforeSendHeaders(twitchSession(), (d, headers) => {
+    if (!/^https?:\/\/gql\.twitch\.tv\//.test(d.url)) return;
     const hdr = {};
-    for (const [k, v] of Object.entries(d.requestHeaders || {})) hdr[k.toLowerCase()] = v;
+    for (const [k, v] of Object.entries(headers)) hdr[k.toLowerCase()] = v;
     if (hdr['client-integrity'] && !hdr['x-prism']) {
       integrity = { token: hdr['client-integrity'], deviceId: hdr['x-device-id'], sessionId: hdr['client-session-id'], version: hdr['client-version'], at: Date.now() };
     }
-    cb({ requestHeaders: d.requestHeaders });
   });
 }
 const freshIntegrity = () => integrity && Date.now() - integrity.at < INTEGRITY_MAX_AGE ? integrity : null;
@@ -325,18 +325,53 @@ function saveRoster() {
     try { fs.writeFileSync(rosterFile() + '.tmp', JSON.stringify(roster)); fs.renameSync(rosterFile() + '.tmp', rosterFile()); } catch {}
   }, 1000);
 }
+// Who counts as NoPixel when they're live in GTA V:
+//  - "NoPixel" (or NP V, [NP] ...) in the title or tags, or
+//  - they're on the roster: seen on NoPixel before, followed by you while
+//    playing GTA V, or added by you. You can take anyone off.
+let lastFollowLive = []; // your live follows, from the last check
 async function nopixel(force) {
+  const s = settings.get();
+  const removed = new Set((s.npRemoved || []).map((l) => l.toLowerCase()));
+  const added = new Set((s.npAdded || []).map((l) => l.toLowerCase()));
   const r = await categoryStreams('Grand Theft Auto V', force);
-  const live = r.streams.filter((x) => NOPIXEL.test(x.title) || x.tags.some((t) => NOPIXEL.test(t)));
   const ro = loadRoster();
   const now = Date.now();
-  for (const x of live) {
-    ro[x.login] = { login: x.login, name: x.name, avatar: x.avatar || ro[x.login]?.avatar || '', lastSeen: now, lastTitle: x.title, firstSeen: ro[x.login]?.firstSeen || now };
+  const followGta = new Set(lastFollowLive.filter((c) => /grand theft auto/i.test(c.game || '')).map((c) => c.login));
+
+  const live = [];
+  for (const x of r.streams) {
+    if (removed.has(x.login)) continue;
+    const byTitle = NOPIXEL.test(x.title) || x.tags.some((t) => NOPIXEL.test(t));
+    const known = !!ro[x.login] || added.has(x.login) || followGta.has(x.login);
+    if (!byTitle && !known) continue;
+    const prev = ro[x.login];
+    const source = byTitle ? 'title' : prev?.source || (added.has(x.login) ? 'manual' : 'follow');
+    ro[x.login] = { login: x.login, name: x.name, avatar: x.avatar || prev?.avatar || '', lastSeen: now,
+      lastTitle: x.title, firstSeen: prev?.firstSeen || now, source: prev?.source === 'title' ? 'title' : source };
+    live.push({ ...x, byTitle });
   }
-  if (live.length) saveRoster();
+  // People you added who haven't been seen yet still get listed.
+  for (const l of added) if (!ro[l]) ro[l] = { login: l, name: l, avatar: '', lastSeen: 0, lastTitle: '', firstSeen: now, source: 'manual' };
+  saveRoster();
   const liveSet = new Set(live.map((x) => x.login));
-  const offline = Object.values(ro).filter((x) => !liveSet.has(x.login)).sort((a, b) => b.lastSeen - a.lastSeen);
+  const offline = Object.values(ro).filter((x) => !liveSet.has(x.login) && !removed.has(x.login)).sort((a, b) => b.lastSeen - a.lastSeen);
   return { live, offline, at: r.at, error: r.error, scanned: r.streams.length };
+}
+
+function rosterRemove(login) {
+  login = String(login).toLowerCase();
+  const s = settings.get();
+  settings.set({ npRemoved: [...new Set([...(s.npRemoved || []), login])], npAdded: (s.npAdded || []).filter((l) => l !== login) });
+  delete loadRoster()[login];
+  saveRoster();
+}
+function rosterAdd(login) {
+  login = String(login).toLowerCase().replace(/^@/, '');
+  if (!/^\w{2,25}$/.test(login)) return false;
+  const s = settings.get();
+  settings.set({ npAdded: [...new Set([...(s.npAdded || []), login])], npRemoved: (s.npRemoved || []).filter((l) => l !== login) });
+  return true;
 }
 
 // ---- Go-live alerts -------------------------------------------------------
@@ -356,6 +391,7 @@ async function poll() {
   const s = settings.get();
   const r = await fetchFollowing();
   if (!r.signedIn || r.error) return;
+  lastFollowLive = r.live;
   ctx.send('twitch:following-update', r);
   const now = new Set(r.live.map((c) => c.login));
   if (known) {
@@ -385,10 +421,12 @@ async function poll() {
 function init(context) {
   ctx = context;
   watchTwitchHeaders();
-  ipcMain.handle('twitch:following', () => fetchFollowing());
+  ipcMain.handle('twitch:following', async () => { const r = await fetchFollowing(); if (!r.error) lastFollowLive = r.live; return r; });
   ipcMain.handle('twitch:stream-info', (_e, logins) => streamInfo(logins));
   ipcMain.handle('twitch:category-streams', (_e, game, force) => categoryStreams(game, force));
   ipcMain.handle('nopixel:streams', (_e, force) => nopixel(force));
+  ipcMain.handle('nopixel:remove', (_e, login) => rosterRemove(login));
+  ipcMain.handle('nopixel:add', (_e, login) => rosterAdd(login));
   // First check seeds the list quietly, so you don't get alerts for everyone
   // who was already live when Prism opened.
   setTimeout(poll, 8000);

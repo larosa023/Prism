@@ -1,7 +1,7 @@
 {
   "name": "prism",
   "productName": "Prism",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Lightweight, ad-light multi-stream client for Twitch, YouTube, TikTok and Kick",
   "main": "src/main/main.js",
   "author": "Anthony LaRosa",
@@ -17,8 +17,10 @@
   },
   "dependencies": {
     "@ghostery/adblocker-electron": "^2.20.3",
+    "@tesseract.js-data/eng": "^1.0.0",
     "electron-updater": "^6.8.11",
-    "hls.js": "^1.7.4"
+    "hls.js": "^1.7.4",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "electron": "^45.2.2",
@@ -34,7 +36,11 @@
     "files": [
       "src/**/*",
       "build/icon.png",
-      "package.json"
+      "package.json",
+      "!node_modules/tesseract.js-core/tesseract-core.{js,wasm,wasm.js}",
+      "!node_modules/tesseract.js-core/tesseract-core-simd.{js,wasm,wasm.js}",
+      "!node_modules/tesseract.js-core/tesseract-core-relaxedsimd.{js,wasm,wasm.js}",
+      "!node_modules/@tesseract.js-data/eng/4.0.0/**"
     ],
     "win": {
       "target": [
@@ -60,6 +66,7 @@
         "repo": "Prism",
         "releaseType": "release"
       }
-    ]
+    ],
+    "asar": false
   }
 }

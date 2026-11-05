@@ -46,6 +46,10 @@ contextBridge.exposeInMainWorld('prism', {
   twitchStreamInfo: (logins) => ipcRenderer.invoke('twitch:stream-info', logins),
   twitchCategoryStreams: (game, force) => ipcRenderer.invoke('twitch:category-streams', game, force),
   nopixelStreams: (force) => ipcRenderer.invoke('nopixel:streams', force),
+  nopixelRemove: (login) => ipcRenderer.invoke('nopixel:remove', login),
+  nopixelAdd: (login) => ipcRenderer.invoke('nopixel:add', login),
+  nopixelLocate: (logins) => ipcRenderer.invoke('nopixel:locate', logins),
+  onNopixelLocation: on('nopixel:location'),
   onAddStream: on('stream:add'),
   kick: { playback: (slug) => ipcRenderer.invoke('kick:playback', slug) },
   points: {

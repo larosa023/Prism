@@ -1409,6 +1409,7 @@
 
   function applySetting(k) {
     if (k === 'showKick') { applyKick(); renderAccounts(); }
+    if (k === 'liveAlerts') paintBell();
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
     if (k === 'twitchPlayer' || k === 'kickPlayer') {
       const plat = k === 'twitchPlayer' ? 'twitch' : 'kick';
@@ -1663,8 +1664,11 @@
   // come from Prism's roster of everyone it has seen live on NoPixel.
   // =========================================================================
   const RP = (() => {
-    let live = [], offline = [], fetchedAt = 0, scanned = 0, timer = null, loading = false, error = '';
+    let live = [], offline = [], fetchedAt = 0, timer = null, loading = false, error = '';
+    let view = 'streamers';
+    const locations = new Map(); // login -> { area, region, at, stale }
     const NP = /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i;
+    const REGION_ORDER = ['Los Santos', 'Vinewood Hills & west coast', 'Blaine County', 'Paleto & north', 'At sea'];
 
     // "Swan DeLeur | NoPixel V | !socials" -> "Swan DeLeur"
     function character(title, login) {
@@ -1673,12 +1677,13 @@
         if (NP.test(p)) continue;
         if (/[!@#]|https?:|\b(day|ep|episode|sub|giveaway|drops|rp|gta|nopixel|stream|live)\b/i.test(p)) continue;
         if (p.length > 28 || p.split(/\s+/).length > 4 || !/^[\p{Lu}]/u.test(p)) continue;
-        if (p.toLowerCase().replace(/\s+/g, '') === login) continue; // just their own name
+        if (p.toLowerCase().replace(/\s+/g, '') === login) continue;
         return p;
       }
       return '';
     }
     const ago = (t) => {
+      if (!t) return 'not seen live yet';
       const m = Math.floor((Date.now() - t) / 60000);
       if (m < 60) return `${Math.max(1, m)}m ago`;
       const hrs = Math.floor(m / 60);
@@ -1686,81 +1691,217 @@
       const d = Math.floor(hrs / 24);
       return d === 1 ? 'yesterday' : `${d} days ago`;
     };
+    const matches = (x, q) => !q || x.login.includes(q) || (x.name || '').toLowerCase().includes(q) ||
+      (x.title || x.lastTitle || '').toLowerCase().includes(q) || (x.char || '').toLowerCase().includes(q) ||
+      (locations.get(x.login)?.area || '').toLowerCase().includes(q);
+    const groups = () => S.npGroups || [];
+    const saveGroups = (g) => { S.npGroups = g; save({ npGroups: g }); };
+    const liveSet = () => new Set(live.map((x) => x.login));
+    const inMultiview = () => new Set(streams.filter((x) => x.platform === 'twitch').map((x) => x.id));
+    function watchAll(logins, label) {
+      const on = live.filter((x) => logins.includes(x.login));
+      if (!on.length) return toast('Nobody there is live right now.');
+      for (const x of on) addStream({ platform: 'twitch', id: x.login, label: x.name });
+      toast(`Added ${on.length} stream${on.length > 1 ? 's' : ''}${label ? ' from ' + label : ''} to multi-view.`);
+      showView('multiview');
+    }
 
-    function matches(x, q) {
-      return !q || x.login.includes(q) || (x.name || '').toLowerCase().includes(q) || (x.title || x.lastTitle || '').toLowerCase().includes(q) || (x.char || '').toLowerCase().includes(q);
+    // ---- Card menu: groups, remove ------------------------------------------
+    const menu = $('#rp-menu');
+    document.addEventListener('click', (e) => { if (!menu.hidden && !menu.contains(e.target)) menu.hidden = true; });
+    function openMenu(e, x) {
+      e.stopPropagation();
+      menu.textContent = '';
+      const item = (label, sub, fn) => menu.append(h('button', { class: 'tm-item', onclick: (ev) => { ev.stopPropagation(); fn(); } },
+        h('span', { text: label }), sub ? h('small', { text: sub }) : null));
+      menu.append(h('div', { class: 'tm-head', text: x.name }));
+      for (const g of groups()) {
+        const has = g.members.includes(x.login);
+        item((has ? '✓ ' : '+ ') + g.name, has ? 'In this group (click to take out)' : 'Add to this group', () => {
+          saveGroups(groups().map((y) => y.id !== g.id ? y : { ...y, members: has ? y.members.filter((l) => l !== x.login) : [...y.members, x.login] }));
+          menu.hidden = true; render();
+        });
+      }
+      const nameInput = h('input', { class: 'tm-input', placeholder: 'New group name, then Enter', maxlength: 30 });
+      nameInput.addEventListener('click', (ev) => ev.stopPropagation());
+      nameInput.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' || !nameInput.value.trim()) return;
+        saveGroups([...groups(), { id: 'g' + Date.now(), name: nameInput.value.trim(), members: [x.login] }]);
+        menu.hidden = true; render();
+      });
+      menu.append(nameInput);
+      item('Open on Twitch', '', () => { menu.hidden = true; prism.openExternal(`https://www.twitch.tv/${x.login}`); });
+      item('Not on NoPixel', 'Take them off this list', async () => {
+        menu.hidden = true;
+        await prism.nopixelRemove(x.login);
+        live = live.filter((y) => y.login !== x.login); offline = offline.filter((y) => y.login !== x.login);
+        render(); toast(`Took ${x.name} off the NoPixel list.`);
+      });
+      const r = e.target.getBoundingClientRect();
+      menu.hidden = false;
+      menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 8) + 'px';
+      menu.style.top = Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8) + 'px';
+    }
+
+    const areaChip = (login) => {
+      const l = locations.get(login);
+      if (!l?.area) return null;
+      return h('span', { class: 'rp-area' + (l.stale ? ' stale' : ''), title: `Read from their stream ${ago(l.at)}`, text: '📍 ' + l.area });
+    };
+
+    // ---- Groups --------------------------------------------------------------
+    function renderGroups(body, q) {
+      const gs = groups();
+      if (!gs.length) return;
+      const ls = liveSet();
+      body.append(h('h2', { class: 'rp-section', text: `Groups · ${gs.length}` }));
+      const row = h('div', { class: 'rp-groups' });
+      for (const g of gs) {
+        if (q && !g.name.toLowerCase().includes(q) && !g.members.some((m) => m.includes(q))) continue;
+        const online = g.members.filter((m) => ls.has(m));
+        const avatars = h('div', { class: 'rp-g-av' });
+        for (const m of online.slice(0, 8)) {
+          const x = live.find((y) => y.login === m);
+          avatars.append(x?.avatar ? h('img', { src: x.avatar, title: x.name, alt: '' }) : h('span', { title: m }));
+        }
+        if (online.length > 8) avatars.append(h('em', { text: '+' + (online.length - 8) }));
+        row.append(h('div', { class: 'rp-group' + (online.length ? '' : ' off') },
+          h('div', { class: 'rp-g-top' }, h('b', { text: g.name }), h('span', { class: 'muted small', text: `${online.length} of ${g.members.length} online` }),
+            h('button', { class: 'icon-btn', title: 'Delete group', text: '✕', onclick: () => { saveGroups(gs.filter((y) => y.id !== g.id)); render(); } })),
+          avatars,
+          h('div', { class: 'rp-g-act' },
+            h('button', { class: 'btn btn-accent', text: 'Watch all', disabled: !online.length, onclick: () => watchAll(online, g.name) }))));
+      }
+      body.append(row);
+    }
+
+    // ---- Live cards ----------------------------------------------------------
+    function liveCard(x, followed, added, bust) {
+      const card = h('div', { class: 'rp-card' + (added ? ' added' : ''), title: x.title },
+        h('div', { class: 'rp-thumb' },
+          h('img', { src: `https://static-cdn.jtvnw.net/previews-ttv/live_user_${x.login}-440x248.jpg?t=${bust}`, alt: '', loading: 'lazy' }),
+          h('span', { class: 'rp-live', text: fmtViewers(x.viewers) }),
+          x.startedAt ? h('span', { class: 'rp-up', text: fmtUptime(x.startedAt) }) : null,
+          h('span', { class: 'rp-add', text: added ? '✓ In multi-view' : '+ Multi-view' })),
+        h('div', { class: 'rp-meta' },
+          x.avatar ? h('img', { class: 'rp-av', src: x.avatar, alt: '', loading: 'lazy' }) : h('span', { class: 'rp-av' }),
+          h('div', { class: 'rp-text' },
+            h('div', { class: 'rp-who' }, h('b', { text: x.name }), followed ? h('span', { class: 'rp-fol', text: 'Following' }) : null),
+            x.char ? h('div', { class: 'rp-char', text: 'as ' + x.char }) : null,
+            areaChip(x.login),
+            h('div', { class: 'rp-t', text: x.title })),
+          h('button', { class: 'icon-btn rp-more', title: 'Groups and more', text: '⋯', onclick: (e) => openMenu(e, x) })));
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.rp-more')) return;
+        if (added) { setChat('twitch:' + x.login); showView('multiview'); return; }
+        addStream({ platform: 'twitch', id: x.login, label: x.name });
+        toast(`Added ${x.name} to multi-view.`);
+        render();
+      });
+      return card;
+    }
+
+    function sorted(L) {
+      const sort = $('#rp-sort').value;
+      const t = (x) => (x.startedAt ? new Date(x.startedAt).getTime() : 0);
+      return L.sort(sort === 'newest' ? (a, b) => t(b) - t(a) : sort === 'longest' ? (a, b) => t(a) - t(b)
+        : sort === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.viewers - a.viewers);
     }
 
     function render() {
       const body = $('#rp-body');
+      const keepScroll = $('#view-rp').scrollTop;
       body.textContent = '';
+      $$('#rp-view button').forEach((b) => b.classList.toggle('on', b.dataset.v === view));
       $('#rp-updated').textContent = loading ? (fetchedAt ? 'Updating…' : 'Searching Twitch…') : fetchedAt ? 'Updated ' + new Date(fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
       if (error && !live.length && !offline.length) {
         body.append(h('div', { class: 'rp-empty' }, "Couldn't load live streams from Twitch.", h('div', { class: 'err-detail', text: 'Twitch said: ' + error })));
         return;
       }
-      if (!fetchedAt) { body.append(h('div', { class: 'rp-empty', text: "Finding everyone live on NoPixel…" })); return; }
+      if (!fetchedAt) { body.append(h('div', { class: 'rp-empty', text: 'Finding everyone live on NoPixel…' })); return; }
 
       const q = $('#rp-search').value.trim().toLowerCase();
       const onlyFollowing = $('#rp-following').checked;
       const followed = new Set(followingCache.map((c) => c.login.toLowerCase()));
-      const inView = new Set(streams.filter((x) => x.platform === 'twitch').map((x) => x.id));
-      const totalViewers = live.reduce((a, x) => a + x.viewers, 0);
-      $('#rp-stats').textContent = `${live.length} live · ${fmtViewers(totalViewers)} watching` + (offline.length ? ` · ${offline.length} offline` : '');
-
-      // Live
-      let L = live.map((x) => ({ ...x, char: character(x.title, x.login) })).filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login)));
-      const sort = $('#rp-sort').value;
-      const t = (x) => (x.startedAt ? new Date(x.startedAt).getTime() : 0);
-      L.sort(sort === 'newest' ? (a, b) => t(b) - t(a) : sort === 'longest' ? (a, b) => t(a) - t(b) : sort === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.viewers - a.viewers);
-
-      body.append(h('h2', { class: 'rp-section', text: `Live now · ${L.length}` }));
-      const grid = h('div', { class: 'rp-grid' });
-      if (!L.length) grid.append(h('div', { class: 'rp-empty', text: live.length ? 'No live streams match your filters.' : 'Nobody is live on NoPixel right now.' }));
+      const added = inMultiview();
+      const located = live.filter((x) => locations.get(x.login)?.area).length;
+      $('#rp-stats').textContent = `${live.length} live · ${fmtViewers(live.reduce((a, x) => a + x.viewers, 0))} watching` +
+        (offline.length ? ` · ${offline.length} offline` : '') + (located ? ` · ${located} located` : '');
+      const L = sorted(live.map((x) => ({ ...x, char: character(x.title, x.login) })).filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login))));
       const bust = Math.floor(Date.now() / 120000);
-      for (const x of L) {
-        const added = inView.has(x.login);
-        const card = h('div', { class: 'rp-card' + (added ? ' added' : ''), title: x.title },
-          h('div', { class: 'rp-thumb' },
-            h('img', { src: `https://static-cdn.jtvnw.net/previews-ttv/live_user_${x.login}-440x248.jpg?t=${bust}`, alt: '', loading: 'lazy' }),
-            h('span', { class: 'rp-live', text: fmtViewers(x.viewers) }),
-            x.startedAt ? h('span', { class: 'rp-up', text: fmtUptime(x.startedAt) }) : null,
-            h('span', { class: 'rp-add', text: added ? '✓ In multi-view' : '+ Multi-view' })),
-          h('div', { class: 'rp-meta' },
-            x.avatar ? h('img', { class: 'rp-av', src: x.avatar, alt: '', loading: 'lazy' }) : h('span', { class: 'rp-av' }),
-            h('div', { class: 'rp-text' },
-              h('div', { class: 'rp-who' }, h('b', { text: x.name }), followed.has(x.login) ? h('span', { class: 'rp-fol', text: 'Following' }) : null),
-              x.char ? h('div', { class: 'rp-char', text: 'as ' + x.char }) : null,
-              h('div', { class: 'rp-t', text: x.title }))));
-        card.addEventListener('click', () => {
-          if (added) { setChat('twitch:' + x.login); showView('multiview'); return; }
-          addStream({ platform: 'twitch', id: x.login, label: x.name });
-          toast(`Added ${x.name} to multi-view.`);
-          render();
-        });
-        grid.append(card);
-      }
-      body.append(grid);
 
-      // Offline (everyone seen live on NoPixel before)
-      if ($('#rp-offline').checked) {
-        const O = offline.map((x) => ({ ...x, char: character(x.lastTitle, x.login) }))
-          .filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login)))
-          .sort(sort === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.lastSeen - a.lastSeen);
-        body.append(h('h2', { class: 'rp-section', text: `Offline · ${O.length}` }));
-        const list = h('div', { class: 'rp-offline' });
-        if (!O.length) list.append(h('div', { class: 'rp-empty small', text: offline.length ? 'No offline streamers match your filters.'
-          : 'Streamers show up here after Prism has seen them live on NoPixel. The list grows each time this tab updates.' }));
-        for (const x of O) {
-          list.append(h('div', { class: 'rp-off', title: x.lastTitle || '', onclick: () => prism.openExternal(`https://www.twitch.tv/${x.login}`) },
-            x.avatar ? h('img', { class: 'rp-av', src: x.avatar, alt: '', loading: 'lazy' }) : h('span', { class: 'rp-av' }),
-            h('div', { class: 'rp-text' },
-              h('div', { class: 'rp-who' }, h('b', { text: x.name }), followed.has(x.login) ? h('span', { class: 'rp-fol', text: 'Following' }) : null),
-              x.char ? h('div', { class: 'rp-char', text: x.char }) : null,
-              h('div', { class: 'rp-t', text: 'Last live ' + ago(x.lastSeen) }))));
+      if (view === 'areas') {
+        renderAreas(body, L, added);
+      } else {
+        renderGroups(body, q);
+        body.append(h('h2', { class: 'rp-section', text: `Live now · ${L.length}` }));
+        const grid = h('div', { class: 'rp-grid' });
+        if (!L.length) grid.append(h('div', { class: 'rp-empty', text: live.length ? 'No live streams match your filters.' : 'Nobody is live on NoPixel right now.' }));
+        for (const x of L) grid.append(liveCard(x, followed.has(x.login), added.has(x.login), bust));
+        body.append(grid);
+
+        if ($('#rp-offline').checked) {
+          const O = offline.map((x) => ({ ...x, char: character(x.lastTitle, x.login) }))
+            .filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login)))
+            .sort($('#rp-sort').value === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.lastSeen - a.lastSeen);
+          body.append(h('h2', { class: 'rp-section', text: `Offline · ${O.length}` }));
+          const list = h('div', { class: 'rp-offline' });
+          if (!O.length) list.append(h('div', { class: 'rp-empty small', text: offline.length ? 'No offline streamers match your filters.'
+            : 'Streamers show up here after Prism has seen them live on NoPixel. The list grows each time this tab updates.' }));
+          for (const x of O) {
+            list.append(h('div', { class: 'rp-off', title: x.lastTitle || '', onclick: () => prism.openExternal(`https://www.twitch.tv/${x.login}`) },
+              x.avatar ? h('img', { class: 'rp-av', src: x.avatar, alt: '', loading: 'lazy' }) : h('span', { class: 'rp-av' }),
+              h('div', { class: 'rp-text' },
+                h('div', { class: 'rp-who' }, h('b', { text: x.name }), followed.has(x.login) ? h('span', { class: 'rp-fol', text: 'Following' }) : null),
+                x.char ? h('div', { class: 'rp-char', text: x.char }) : null,
+                h('div', { class: 'rp-t', text: 'Last live ' + ago(x.lastSeen) })),
+              h('button', { class: 'icon-btn rp-more', title: 'Groups and more', text: '⋯', onclick: (e) => { e.stopPropagation(); openMenu(e, x); } })));
+          }
+          body.append(list);
         }
-        body.append(list);
       }
+      $('#view-rp').scrollTop = keepScroll;
+    }
+
+    // ---- Areas board: who's where, by part of the map -------------------------
+    function renderAreas(body, L, added) {
+      const byArea = new Map();
+      const unknown = [];
+      for (const x of L) {
+        const l = locations.get(x.login);
+        if (!l?.area) { unknown.push(x); continue; }
+        const key = l.region + '|' + l.area;
+        if (!byArea.has(key)) byArea.set(key, { region: l.region, area: l.area, people: [] });
+        byArea.get(key).people.push(x);
+      }
+      body.append(h('p', { class: 'muted small rp-note', text: "Areas are read from each stream's HUD (the street name by the minimap) in its Twitch preview, which updates every few minutes. They're estimates, and streams with the HUD hidden show as unknown." }));
+      for (const region of REGION_ORDER) {
+        const areas = [...byArea.values()].filter((a) => a.region === region).sort((a, b) => b.people.length - a.people.length);
+        if (!areas.length) continue;
+        body.append(h('h2', { class: 'rp-section', text: `${region} · ${areas.reduce((n, a) => n + a.people.length, 0)}` }));
+        const grid = h('div', { class: 'rp-areas' });
+        for (const a of areas) {
+          const list = h('div', { class: 'rp-a-list' });
+          for (const x of a.people.sort((p, q) => q.viewers - p.viewers)) {
+            list.append(h('div', { class: 'rp-a-who' + (added.has(x.login) ? ' added' : ''), title: x.title, onclick: () => {
+              if (!added.has(x.login)) { addStream({ platform: 'twitch', id: x.login, label: x.name }); toast(`Added ${x.name} to multi-view.`); render(); }
+            } },
+              x.avatar ? h('img', { src: x.avatar, alt: '' }) : h('span', { class: 'ph' }),
+              h('span', { class: 'n', text: x.name }), x.char ? h('span', { class: 'c', text: x.char }) : null,
+              h('span', { class: 'v', text: fmtViewers(x.viewers) })));
+          }
+          grid.append(h('div', { class: 'rp-a' },
+            h('div', { class: 'rp-a-top' }, h('b', { text: a.area }), h('span', { class: 'muted small', text: `${a.people.length} here` }),
+              h('button', { class: 'btn', text: 'Watch all', onclick: () => watchAll(a.people.map((p) => p.login), a.area) })),
+            list));
+        }
+        body.append(grid);
+      }
+      if (unknown.length) {
+        body.append(h('h2', { class: 'rp-section', text: `Location unknown · ${unknown.length}` }));
+        body.append(h('div', { class: 'rp-unknown' }, ...unknown.map((x) => h('span', { title: x.title, text: x.name }))));
+      }
+      if (!byArea.size) body.append(h('div', { class: 'rp-empty', text: 'Reading where everyone is… this takes a minute or two the first time.' }));
     }
 
     async function load(force) {
@@ -1770,17 +1911,49 @@
       const r = await prism.nopixelStreams(force).catch((e) => ({ live: [], offline: [], error: String(e) }));
       loading = false;
       error = r.error || '';
-      if (r.live?.length || r.offline?.length || !fetchedAt) {
-        live = r.live || []; offline = r.offline || []; scanned = r.scanned || 0; fetchedAt = r.at || Date.now();
-      }
+      if (r.live?.length || r.offline?.length || !fetchedAt) { live = r.live || []; offline = r.offline || []; fetchedAt = r.at || Date.now(); }
+      render();
+      // Read everyone's area in the background, biggest streams first.
+      const known = await prism.nopixelLocate([...live].sort((a, b) => b.viewers - a.viewers).map((x) => x.login)).catch(() => ({}));
+      for (const [l, v] of Object.entries(known || {})) locations.set(l, v);
       render();
     }
+
+    let renderTimer = null;
+    prism.onNopixelLocation((d) => {
+      locations.set(d.login, d);
+      if (currentView !== 'rp') return;
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(render, 400);
+    });
 
     $('#rp-search').addEventListener('input', render);
     $('#rp-sort').addEventListener('change', () => { save({ rpSort: $('#rp-sort').value }); render(); });
     $('#rp-following').addEventListener('change', render);
     $('#rp-offline').addEventListener('change', render);
     $('#rp-refresh').addEventListener('click', () => load(true));
+    $$('#rp-view button').forEach((b) => b.addEventListener('click', () => { view = b.dataset.v; render(); }));
+    $('#rp-add-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.textContent = '';
+      const input = h('input', { class: 'tm-input', placeholder: 'Twitch name or link, then Enter' });
+      input.addEventListener('click', (ev) => ev.stopPropagation());
+      input.addEventListener('keydown', async (ev) => {
+        if (ev.key !== 'Enter') return;
+        const p = parseStream(input.value);
+        if (!p || p.platform !== 'twitch') return toast('Enter a Twitch name or link.');
+        await prism.nopixelAdd(p.id);
+        menu.hidden = true;
+        toast(`Added ${p.id} to the NoPixel list.`);
+        load(true);
+      });
+      menu.append(h('div', { class: 'tm-head', text: 'Add someone who plays on NoPixel' }), input);
+      const r = e.target.getBoundingClientRect();
+      menu.hidden = false;
+      menu.style.left = Math.min(r.left, window.innerWidth - 280) + 'px';
+      menu.style.top = r.bottom + 4 + 'px';
+      input.focus();
+    });
 
     return {
       show() {
@@ -1884,6 +2057,58 @@
   setInterval(refreshFollowing, 120000);
 
   // =========================================================================
+  // Notifications bell (quick on/off)
+  // =========================================================================
+  const BELL_ON = '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>';
+  const BELL_OFF = '<svg viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l1.5 2H8"/><path d="M10 20.5a2 2 0 0 0 4 0"/><path d="M4 4l16 16"/></svg>';
+  function paintBell() {
+    const b = $('#bell-btn');
+    b.innerHTML = S.liveAlerts ? BELL_ON : BELL_OFF;
+    b.classList.toggle('off', !S.liveAlerts);
+    b.title = S.liveAlerts ? 'Go-live notifications are on (click to turn off)' : 'Go-live notifications are off (click to turn on)';
+  }
+  $('#bell-btn').addEventListener('click', async () => {
+    await save({ liveAlerts: !S.liveAlerts });
+    paintBell();
+    if (currentView === 'settings') renderSettings();
+    toast(S.liveAlerts ? 'Notifications on.' : 'Notifications off.');
+  });
+
+  // =========================================================================
+  // Drag sidebar tabs to rearrange them
+  // =========================================================================
+  const navTabs = $('#nav-tabs');
+  function applyNavOrder() {
+    const order = S.navOrder || [];
+    const btns = [...navTabs.children];
+    btns.sort((a, b) => {
+      const ia = order.indexOf(a.dataset.view), ib = order.indexOf(b.dataset.view);
+      return (ia < 0 ? 99 + btns.indexOf(a) : ia) - (ib < 0 ? 99 + btns.indexOf(b) : ib);
+    });
+    for (const b of btns) navTabs.append(b);
+  }
+  let dragBtn = null;
+  for (const b of navTabs.children) {
+    b.draggable = true;
+    b.addEventListener('dragstart', (e) => { dragBtn = b; b.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', b.dataset.view); });
+    b.addEventListener('dragend', () => {
+      b.classList.remove('dragging');
+      dragBtn = null;
+      save({ navOrder: [...navTabs.children].map((x) => x.dataset.view) });
+    });
+  }
+  navTabs.addEventListener('dragover', (e) => {
+    if (!dragBtn) return;
+    e.preventDefault();
+    const after = [...navTabs.children].filter((x) => x !== dragBtn && !x.hidden).find((x) => {
+      const r = x.getBoundingClientRect();
+      return e.clientY < r.top + r.height / 2;
+    });
+    if (after) navTabs.insertBefore(dragBtn, after); else navTabs.append(dragBtn);
+  });
+  navTabs.addEventListener('drop', (e) => e.preventDefault());
+
+  // =========================================================================
   // Shortcuts & start-up
   // =========================================================================
   document.addEventListener('click', (e) => {
@@ -1910,6 +2135,8 @@
   refreshChatAuth();
   if (S.thirdPartyEmotes) loadEmotes();
   paintSidebarIcons();
+  applyNavOrder();
+  paintBell();
   applyPanelSizes();
   refreshFollowing();
   refreshStreamInfo();

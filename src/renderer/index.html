@@ -20,20 +20,22 @@
     <button id="live-btn" class="btn btn-ghost live-btn" title="Live channels you follow on Twitch">
       <span class="dot"></span>Following
     </button>
+    <button id="bell-btn" class="btn btn-ghost bell-btn" title="Go-live notifications"></button>
     <div id="update-pill" class="update-pill" hidden></div>
     <div class="titlebar-spacer"></div>
   </header>
 
   <nav class="sidebar">
-    <button class="nav-btn active" data-view="multiview" title="Multi-view">
-      <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></svg></span><span class="lbl">Multi-view</span>
-    </button>
-    <div class="nav-sep"></div>
-    <button class="nav-btn plat twitch" data-view="twitch" title="Twitch"><span class="ic" data-fav="twitch">TW</span><span class="lbl">Twitch</span></button>
-    <button class="nav-btn plat youtube" data-view="youtube" title="YouTube"><span class="ic" data-fav="youtube">YT</span><span class="lbl">YouTube</span></button>
-    <button class="nav-btn plat tiktok" data-view="tiktok" title="TikTok"><span class="ic" data-fav="tiktok">TT</span><span class="lbl">TikTok</span></button>
-    <button class="nav-btn" data-view="rp" title="NoPixel: every streamer, live first"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 20.5V10l5-3.5L13 10v10.5"/><path d="M13 20.5V5.5L17.5 3 21 5.5v15"/><path d="M2 20.5h20"/><path d="M6 13h4M6 16.5h4M16 8h2M16 11.5h2M16 15h2"/></svg></span><span class="lbl">NoPixel</span></button>
-    <button class="nav-btn plat kick" data-view="kick" title="Kick" hidden><span class="ic" data-fav="kick">K</span><span class="lbl">Kick</span></button>
+    <div id="nav-tabs" class="nav-tabs" title="Drag to rearrange">
+      <button class="nav-btn active" data-view="multiview" title="Multi-view">
+        <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="8" height="7" rx="1.5"/><rect x="13" y="4" width="8" height="7" rx="1.5"/><rect x="3" y="13" width="8" height="7" rx="1.5"/><rect x="13" y="13" width="8" height="7" rx="1.5"/></svg></span><span class="lbl">Multi-view</span>
+      </button>
+      <button class="nav-btn plat twitch" data-view="twitch" title="Twitch"><span class="ic" data-fav="twitch">TW</span><span class="lbl">Twitch</span></button>
+      <button class="nav-btn plat youtube" data-view="youtube" title="YouTube"><span class="ic" data-fav="youtube">YT</span><span class="lbl">YouTube</span></button>
+      <button class="nav-btn plat tiktok" data-view="tiktok" title="TikTok"><span class="ic" data-fav="tiktok">TT</span><span class="lbl">TikTok</span></button>
+      <button class="nav-btn" data-view="rp" title="NoPixel: every streamer, live first"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3 20.5V10l5-3.5L13 10v10.5"/><path d="M13 20.5V5.5L17.5 3 21 5.5v15"/><path d="M2 20.5h20"/><path d="M6 13h4M6 16.5h4M16 8h2M16 11.5h2M16 15h2"/></svg></span><span class="lbl">NoPixel</span></button>
+      <button class="nav-btn plat kick" data-view="kick" title="Kick" hidden><span class="ic" data-fav="kick">K</span><span class="lbl">Kick</span></button>
+    </div>
     <div class="nav-sep"></div>
     <div id="side-live" class="side-live"></div>
     <button class="nav-btn" data-view="settings" title="Settings">
@@ -108,7 +110,9 @@
     <!-- NoPixel: every NoPixel streamer, live ones first -->
     <section id="view-rp" class="view rp">
       <div class="rp-head">
-        <div class="rp-title"><h1>NoPixel</h1><span id="rp-stats" class="muted"></span></div>
+        <div class="rp-title"><h1>NoPixel</h1><span id="rp-stats" class="muted"></span>
+          <div class="seg rp-view" id="rp-view"><button data-v="streamers" class="on">Streamers</button><button data-v="areas">Areas</button></div>
+        </div>
         <div class="rp-tools">
           <input id="rp-search" type="text" spellcheck="false" placeholder="Search streamer, character or title">
           <select id="rp-sort" title="Sort">
@@ -119,11 +123,13 @@
           </select>
           <label class="rp-check"><input type="checkbox" id="rp-following"> Following only</label>
           <label class="rp-check"><input type="checkbox" id="rp-offline" checked> Show offline</label>
+          <button class="btn" id="rp-add-btn" title="Add someone who plays on NoPixel">+ Add streamer</button>
           <button class="btn" id="rp-refresh">Refresh</button>
           <span id="rp-updated" class="muted small"></span>
         </div>
       </div>
       <div id="rp-body" class="rp-body"></div>
+      <div id="rp-menu" class="tile-menu" hidden></div>
     </section>
 
     <section id="view-settings" class="view settings">
@@ -182,7 +188,7 @@
 
         <div class="card">
           <h3>Go-live alerts</h3>
-          <label class="row"><span><b>Alert me when someone I follow goes live</b><small>A Windows notification; click it to add them to multi-view. Needs your Twitch sign-in.</small></span>
+          <label class="row"><span><b>Notifications</b><small>Windows notifications when someone you follow goes live; click one to add them to multi-view. Also the bell at the top of the window. Needs your Twitch sign-in.</small></span>
             <input type="checkbox" class="switch" data-setting="liveAlerts"></label>
           <label class="row"><span><b>Play the notification sound</b></span>
             <input type="checkbox" class="switch" data-setting="liveAlertSound"></label>
