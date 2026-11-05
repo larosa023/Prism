@@ -11,7 +11,7 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Go-live alerts**: a Windows notification when someone you follow goes live; click it to watch. Channels on your auto-add list join multi-view by themselves.
 - **Stream info on tiles**: hover a Twitch tile for its title, game, viewers and uptime.
 - **Saved layouts**: save a set of streams and its layout under a name and reopen it in one click.
-- **Drag to rearrange**: drag a stream's name onto another tile to swap them (onto the big one in Focus to make it the main stream).
+- **Drag to rearrange**: grab a stream (anywhere on the video, or its ⠿ handle) and drop it on another tile to swap them (onto the big one in Focus to make it the main stream).
 - **Pop-out mini player**: pop any stream into a small always-on-top window (⋯ menu or `P`); drag it anywhere, close it to put it back.
 - **Channel points**: your balance next to the chat box, with bonus auto-claim when Twitch allows it. Twitch only counts points and watch time in its own player, so switch a stream to "Twitch's player" from its ⋯ menu to earn them.
 - **Lightweight Kick player**: Kick streams use the same light player as Twitch (when Kick is on).

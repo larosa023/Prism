@@ -260,6 +260,7 @@
     }
 
     const bar = h('div', { class: 'tile-bar' },
+      h('span', { class: 'tile-grip', title: 'Drag to move' , text: '⠿' }),
       h('span', { class: 'tile-label', title: PLAT_NAMES[s.platform] }, siteIcon(s.platform, 'fav fav-sm'), s.label || s.id),
       h('div', { class: 'grow' }),
       extra,
@@ -273,7 +274,13 @@
     t.el = h('div', { class: 'tile', 'data-key': key }, media, bar, infoEl, statusEl, mutedTag);
     t.el.addEventListener('mouseenter', () => (hoveredKey = key));
     t.el.addEventListener('mouseleave', () => { if (hoveredKey === key) hoveredKey = null; });
+    // Drag to move: anywhere on a lightweight player's video, or by the name / ⠿ handle.
     bar.querySelector('.tile-label').addEventListener('pointerdown', (e) => startTileDrag(e, key));
+    bar.querySelector('.tile-grip').addEventListener('pointerdown', (e) => startTileDrag(e, key));
+    if (media.tagName === 'VIDEO') {
+      media.draggable = false;
+      media.addEventListener('pointerdown', (e) => startTileDrag(e, key));
+    }
     paintTileInfo(t);
     tiles.set(key, t);
     applyMute(t);
@@ -412,6 +419,8 @@
   let hoveredKey = null;
   function startTileDrag(e, key) {
     if (e.button !== 0) return;
+    if (e.target.closest('button, input, select') && !e.target.closest('.tile-grip')) return;
+    if (visibleStreams().filter((x) => !x.popped).length < 2) return; // nothing to swap with
     e.preventDefault();
     const sx = e.clientX, sy = e.clientY;
     let dragging = false, target = null, shield = null, ghost = null;

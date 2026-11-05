@@ -521,3 +521,7 @@ img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }
 .theme-prev i { border-radius: 4px; display: block; }
 .theme-name { display: block; padding: 6px 9px; font-weight: 600; font-size: 12px; background: var(--bg-3); color: var(--text); }
 [data-theme="light"] .tile-bar, [data-theme="light"] .tile-info { color: #fff; }
+
+.tile-grip { cursor: grab; font-size: 14px; line-height: 1; padding: 3px 5px; border-radius: 5px; background: rgba(0,0,0,.55); color: #fff; user-select: none; }
+.tile-grip:hover { background: rgba(155,107,255,.8); }
+.tile-video { cursor: grab; }
