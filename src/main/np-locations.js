@@ -119,9 +119,23 @@ let queue = [];
 let running = false;
 let send = () => {};
 
+// The text-recognition engine takes ~50-60 MB, so it's shut down a minute
+// after the last reading and started again when needed.
+let idleTimer = null;
+function scheduleIdleShutdown() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async () => {
+    if (running || queue.length || !workerPromise) return;
+    const p = workerPromise;
+    workerPromise = null;
+    try { (await p).terminate(); } catch {}
+  }, 60 * 1000);
+}
+
 async function pump() {
   if (running) return;
   running = true;
+  clearTimeout(idleTimer);
   while (queue.length) {
     const login = queue.shift();
     const prev = results.get(login);
@@ -139,6 +153,7 @@ async function pump() {
     }
   }
   running = false;
+  scheduleIdleShutdown();
 }
 
 function init(ctx) {

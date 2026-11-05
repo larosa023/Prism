@@ -1,6 +1,17 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.8.3',
+    date: 'Nov 5, 2026',
+    items: [
+      'Much faster start: the window opens in well under a second (it used to take around 6), and the app no longer freezes for a few seconds while it starts.',
+      'Less memory: about 150 MB less right after launch. Ad blocking is prepared once and saved, instead of being rebuilt from the filter lists every time Prism opens.',
+      'Muted streams keep 15 seconds of rewind; the stream you\'re listening to (or the priority one) keeps the full amount. That saves around 40 MB or more per muted stream.',
+      'Streams start one after another, with the one you\'re listening to first, so it shows up sooner.',
+      'The area-reading engine for the NoPixel tab shuts down when it\'s not needed, freeing about 50 MB.'
+    ]
+  },
+  {
     version: '0.8.2',
     date: 'Nov 5, 2026',
     items: ['Volume sliders (in the Mixer and on each stream) now move smoothly, in fine 1% steps, with a filled track that shows the level.']

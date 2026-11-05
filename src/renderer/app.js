@@ -191,6 +191,23 @@
     if (s.platform === 'kick') return `https://player.kick.com/${encodeURIComponent(s.id)}?autoplay=true&muted=false`;
   }
 
+  // Start players one after another (the one with sound first), so the first
+  // stream appears quickly instead of all of them loading at once.
+  const startQueue = [];
+  let starting = false;
+  function queueStart(player, first) {
+    if (first) startQueue.unshift(player); else startQueue.push(player);
+    if (starting) return;
+    starting = true;
+    const next = () => {
+      const p = startQueue.shift();
+      if (!p) { starting = false; return; }
+      if (!p.destroyed) p.start();
+      setTimeout(next, 350);
+    };
+    requestAnimationFrame(next);
+  }
+
   const useNative = (s) => !s.forceEmbed && s.player !== 'embed' && window.NativeTwitchPlayer && window.Hls?.isSupported() &&
     ((s.platform === 'twitch' && S.twitchPlayer !== 'embed') || (s.platform === 'kick' && S.kickPlayer !== 'embed'));
   // Streams shown in the grid (popped-out ones play in their own window).
@@ -260,7 +277,7 @@
       t.setVol = (v) => player.setVolume(v);
       t.reload = () => player.start();
       t.destroy = () => { player.destroy(); t.el.remove(); };
-      requestAnimationFrame(() => player.start());
+      queueStart(player, !s.muted && !s.ducked);
     } else {
       const wvAttrs = { partition: info.platforms[s.platform].partition, src: playerUrl(s), webpreferences: 'backgroundThrottling=no' };
       if (s.platform === 'twitch') wvAttrs.preload = info.twitchPreload;
@@ -329,6 +346,15 @@
     t.mutedTag.textContent = st.muted ? 'Muted' : 'Quiet';
     t.setAudio(!!st.muted);
     t.setVol?.((st.volume ?? 1) * (ducked ? duckLevel() : 1));
+    // Full rewind buffer only for the stream you're listening to (or the
+    // priority one); the rest keep 15 seconds, which saves a lot of memory.
+    if (t.player) {
+      const full = Number(S.rewindSeconds) || 0;
+      const hasSound = !st.muted && !st.ducked;
+      let prio = null;
+      try { prio = prioKey; } catch {} // not set up yet during start-up
+      t.player.setBackBuffer(hasSound || keyOf(st) === prio ? full : Math.min(full, 15));
+    }
     if (!opts.fromSlider && typeof renderMixer === 'function' && !$('#mixer-panel').hidden) renderMixer();
     syncSliders(t);
   }
@@ -2451,7 +2477,7 @@
   if (S.lastSeenVersion !== info.version && (window.PRISM_CHANGELOG || []).some((v) => v.version === info.version)) setTimeout(openNews, 800);
   paintBell();
   applyPanelSizes();
-  refreshFollowing();
-  refreshStreamInfo();
+  // Let the streams start first; the rest can wait a moment.
+  setTimeout(() => { refreshFollowing(); refreshStreamInfo(); }, 1500);
   prism.updater.state().then(showUpdater);
 })();

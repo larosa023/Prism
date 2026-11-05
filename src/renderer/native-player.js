@@ -177,6 +177,11 @@
       if (edge) this.video.currentTime = edge;
       this.video.play().catch(() => {});
     }
+    // How much video to keep behind the playhead (can change while playing).
+    setBackBuffer(sec) {
+      this.rewindSeconds = sec;
+      if (this.hls) this.hls.config.backBufferLength = sec;
+    }
     canRewind() { return this.rewindSeconds > 0 && this.video.currentTime - this.earliest() > 3; }
 
     setMuted(m) { this.video.muted = m; }

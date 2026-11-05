@@ -38,8 +38,8 @@ const CHROME_UA = app.userAgentFallback
   .replace(/\s?prism\/\S+/i, '');
 app.userAgentFallback = CHROME_UA;
 
-// Lighter on memory: don't keep a spare renderer process warm.
-app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess,CalculateNativeWinOcclusion');
+// Lighter on memory: no spare renderer, no cached copies of pages you left.
+app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess,CalculateNativeWinOcclusion,BackForwardCache');
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 
 // Window and title-bar button colors for each theme.
@@ -129,7 +129,8 @@ function createWindow() {
       sandbox: true,
       webviewTag: true,
       spellcheck: false,
-      backgroundThrottling: true
+      backgroundThrottling: true,
+      v8CacheOptions: 'bypassHeatCheck' // keep compiled app code, so later launches start faster
     }
   });
 
