@@ -277,6 +277,38 @@
     if (tags.id) el.dataset.id = tags.id;
     el.dataset.user = (tags.login || nick || '').toLowerCase();
 
+    // A reply: show who and what it answers above the message, and drop the
+    // "@name " Twitch puts at the start (its emote positions shift with it).
+    const parentName = tags['reply-parent-display-name'] || tags['reply-parent-user-login'];
+    let emotes = tags.emotes;
+    if (parentName) {
+      const ref = document.createElement('div');
+      ref.className = 'reply-ref';
+      const who = document.createElement('span');
+      who.className = 'reply-who';
+      who.textContent = '@' + parentName;
+      const what = document.createElement('span');
+      what.className = 'reply-body';
+      what.textContent = tags['reply-parent-msg-body'] || '';
+      ref.append('↳ Replying to ', who, what.textContent ? ': ' : '', what);
+      ref.title = `@${parentName}: ${tags['reply-parent-msg-body'] || ''}`;
+      if (tags['reply-parent-msg-id']) ref.dataset.parent = tags['reply-parent-msg-id'];
+      ref.dataset.login = String(tags['reply-parent-user-login'] || parentName).toLowerCase();
+      el.appendChild(ref);
+      el.classList.add('reply');
+      const m = text.match(/^@(\S+)\s+/);
+      if (m && m[1].toLowerCase() === String(tags['reply-parent-user-login'] || parentName).toLowerCase()) {
+        const cut = [...m[0]].length;
+        text = text.slice(m[0].length);
+        if (emotes) emotes = emotes.split('/').map((grp) => {
+          const [id, pos] = grp.split(':');
+          const kept = (pos || '').split(',').map((r) => r.split('-').map(Number)).filter(([a]) => a >= cut).map(([a, b]) => `${a - cut}-${b - cut}`);
+          return kept.length ? id + ':' + kept.join(',') : '';
+        }).filter(Boolean).join('/');
+      }
+      if (opts.selfLogin && String(tags['reply-parent-user-login'] || '').toLowerCase() === opts.selfLogin) el.classList.add('mention');
+    }
+
     for (const b of (tags.badges || '').split(',')) {
       const key = b.split('/')[0];
       if (BADGES[key]) {
@@ -303,7 +335,7 @@
     const body = document.createElement('span');
     body.className = 'text';
     if (action) body.style.color = name.style.color;
-    const mention = renderText(body, text, tags.emotes, opts.extraEmote, opts.selfLogin);
+    const mention = renderText(body, text, emotes, opts.extraEmote, opts.selfLogin);
     if (mention) el.classList.add('mention');
     el.appendChild(body);
     return el;

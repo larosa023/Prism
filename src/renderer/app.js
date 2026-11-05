@@ -1101,6 +1101,23 @@
   });
 
   chatBody.addEventListener('click', (e) => {
+    // "Replying to @someone": jump to the message it answers, if it's still in
+    // the chat; otherwise show that person's messages.
+    const ref = e.target.closest('.msg .reply-ref');
+    if (ref) {
+      const pane = ref.closest('.chat-pane');
+      const parent = ref.dataset.parent && pane?.querySelector(`.msg[data-id="${CSS.escape(ref.dataset.parent)}"]`);
+      if (parent) {
+        parent.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        parent.classList.add('flash');
+        setTimeout(() => parent.classList.remove('flash'), 1400);
+      } else if (pane?.dataset.ch) {
+        const who = ref.dataset.login;
+        if (who) openUserCard(pane.dataset.ch, who);
+      }
+      e.stopPropagation();
+      return;
+    }
     const name = e.target.closest('.msg .name');
     if (name) {
       const msg = name.closest('.msg');

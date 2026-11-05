@@ -211,6 +211,11 @@ code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
 .msg a { color: var(--accent-2); }
 .msg.system { color: var(--muted); font-style: italic; }
 .msg.notice { background: rgba(155,107,255,.10); border-left: 2px solid var(--accent); padding: 4px 8px; margin: 4px 0; border-radius: 4px; }
+.msg .reply-ref { font-size: .86em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 1px; cursor: pointer; }
+.msg .reply-ref .reply-who { font-weight: 600; color: var(--text, inherit); opacity: .85; }
+.msg .reply-ref:hover .reply-body { color: var(--text, inherit); }
+.msg.reply { border-left: 2px solid var(--line); padding-left: 6px; }
+.msg.flash { background: rgba(155,107,255,.22); border-radius: 4px; transition: background .6s; }
 .msg.deleted .text { opacity: .35; text-decoration: line-through; }
 .msg.mention { background: rgba(229,72,77,.12); border-radius: 4px; }
 .badge {

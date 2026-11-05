@@ -1,6 +1,11 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.8.5',
+    date: 'Nov 5, 2026',
+    items: ['Chat replies show who they\'re answering and what that person said ("↳ Replying to @name: …"). Click it to jump to the original message, or see that person\'s messages if it has scrolled away. Replies to you are highlighted like mentions.']
+  },
+  {
     version: '0.8.4',
     date: 'Nov 5, 2026',
     items: [
