@@ -179,7 +179,7 @@
 
   const visibleStreams = () => streams.filter((s) => s.platform !== 'kick' || S.showKick);
   const chatStreams = () => visibleStreams().filter((s) => !s.chatOff);
-  const persistStreams = () => save({ streams: streams.map(({ forceEmbed, ...rest }) => rest) });
+  const persistStreams = () => save({ streams: streams.map(({ forceEmbed, popped, ...rest }) => rest) });
 
   function playerUrl(s) {
     if (s.platform === 'twitch') return `https://player.twitch.tv/?channel=${encodeURIComponent(s.id)}&parent=twitch.tv&autoplay=true&muted=false`;
@@ -187,7 +187,10 @@
     if (s.platform === 'kick') return `https://player.kick.com/${encodeURIComponent(s.id)}?autoplay=true&muted=false`;
   }
 
-  const useNative = (s) => s.platform === 'twitch' && S.twitchPlayer !== 'embed' && !s.forceEmbed && window.NativeTwitchPlayer && window.Hls?.isSupported();
+  const useNative = (s) => !s.forceEmbed && s.player !== 'embed' && window.NativeTwitchPlayer && window.Hls?.isSupported() &&
+    ((s.platform === 'twitch' && S.twitchPlayer !== 'embed') || (s.platform === 'kick' && S.kickPlayer !== 'embed'));
+  // Streams shown in the grid (popped-out ones play in their own window).
+  const stageStreams = () => visibleStreams().filter((s) => !s.popped);
 
   function makeTile(s) {
     const key = keyOf(s);
@@ -202,6 +205,7 @@
     if (useNative(s)) {
       // Lightweight player: a <video> in this window, no extra browser process.
       const player = new NativeTwitchPlayer(s.id, {
+        kind: s.platform,
         onStatus: (msg) => { statusEl.textContent = msg; statusEl.hidden = !msg; },
         onLevels: (levels) => {
           const opts = [['auto', 'Auto (fit tile)'], ['source', 'Source']];
@@ -217,7 +221,7 @@
         },
         onFatal: (why) => {
           // Fall back to Twitch's own player for this stream.
-          toast(`Switched ${s.label || s.id} to Twitch's player (${why}).`);
+          toast(`Switched ${s.label || s.id} to ${PLAT_NAMES[s.platform]}'s player (${why}).`);
           s.forceEmbed = true;
           t.destroy();
           tiles.delete(key);
@@ -260,6 +264,7 @@
       h('div', { class: 'grow' }),
       extra,
       muteBtn,
+      h('button', { class: 'tile-btn', title: 'More', text: '⋯', onclick: (e) => openTileMenu(e, key) }),
       h('button', { class: 'tile-btn', title: 'Make main (Focus layout)', text: '⤢', onclick: () => { focusKey = key; if (S.layout !== 'focus') setLayout('focus'); else layout(); } }),
       h('button', { class: 'tile-btn', title: 'Show this chat', text: 'Chat', onclick: () => setChat(key) }),
       h('button', { class: 'tile-btn', title: 'Reload', text: '⟳', onclick: () => t.reload() }),
@@ -291,7 +296,7 @@
   }
 
   function renderStage() {
-    const vis = visibleStreams();
+    const vis = stageStreams();
     const keys = new Set(vis.map(keyOf));
     for (const [k, t] of tiles) if (!keys.has(k)) { t.destroy(); tiles.delete(k); }
     vis.forEach((s, i) => {
@@ -310,7 +315,7 @@
 
   function layout() {
     // Only lay out streams whose player tile exists (a resize can fire mid-update).
-    const vis = visibleStreams().filter((s) => tiles.has(keyOf(s)));
+    const vis = stageStreams().filter((s) => tiles.has(keyOf(s)));
     const n = vis.length;
     const W = stage.clientWidth - 20;
     const H = stage.clientHeight - 10;
@@ -387,7 +392,7 @@
     if (s.platform === 'twitch') joinChat(s.id);
     renderStage();
     setChat(key);
-    if (s.platform === 'twitch') refreshStreamInfo();
+    if (s.platform !== 'youtube') refreshStreamInfo();
     markLive();
   }
 
@@ -455,6 +460,56 @@
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }
+
+  // ---- Tile menu: pop out, choose the player ------------------------------
+  const tileMenu = h('div', { class: 'tile-menu', hidden: true });
+  document.body.append(tileMenu);
+  document.addEventListener('click', (e) => { if (!tileMenu.hidden && !tileMenu.contains(e.target)) tileMenu.hidden = true; });
+  function openTileMenu(e, key) {
+    e.stopPropagation();
+    const s = streams.find((x) => keyOf(x) === key);
+    if (!s) return;
+    tileMenu.textContent = '';
+    const item = (label, sub, fn) => tileMenu.append(h('button', { class: 'tm-item', onclick: () => { tileMenu.hidden = true; fn(); } },
+      h('span', { text: label }), sub ? h('small', { text: sub }) : null));
+    item('Pop out', 'Always-on-top mini player  ·  P', () => popOut(key));
+    if (s.platform === 'twitch' || s.platform === 'kick') {
+      const site = PLAT_NAMES[s.platform];
+      const globalEmbed = (s.platform === 'twitch' ? S.twitchPlayer : S.kickPlayer) === 'embed';
+      if (!globalEmbed) {
+        if (s.player === 'embed' || s.forceEmbed) item('Use the lightweight player', 'Less memory', () => setStreamPlayer(key, 'native'));
+        else item(`Use ${site}'s player`, s.platform === 'twitch' ? 'Earns channel points and watch time' : 'The official player', () => setStreamPlayer(key, 'embed'));
+      }
+    }
+    item('Open on ' + PLAT_NAMES[s.platform], '', () => prism.openExternal(
+      s.platform === 'twitch' ? `https://www.twitch.tv/${s.id}` : s.platform === 'kick' ? `https://kick.com/${s.id}` : `https://www.youtube.com/watch?v=${s.id}`));
+    const r = e.target.getBoundingClientRect();
+    tileMenu.hidden = false;
+    tileMenu.style.left = Math.min(r.left, window.innerWidth - tileMenu.offsetWidth - 8) + 'px';
+    tileMenu.style.top = r.bottom + 4 + 'px';
+  }
+  function setStreamPlayer(key, which) {
+    const s = streams.find((x) => keyOf(x) === key);
+    if (!s) return;
+    if (which === 'embed') s.player = 'embed'; else { delete s.player; delete s.forceEmbed; }
+    persistStreams();
+    const t = tiles.get(key);
+    if (t) { t.destroy(); tiles.delete(key); }
+    renderStage();
+  }
+  function popOut(key) {
+    const s = streams.find((x) => keyOf(x) === key);
+    if (!s || s.popped) return;
+    s.popped = true;
+    const { forceEmbed, popped, ...plain } = s;
+    prism.mini.open({ ...plain, player: forceEmbed ? 'embed' : s.player });
+    renderStage();
+  }
+  prism.mini.onClosed((key) => {
+    const s = streams.find((x) => keyOf(x) === key);
+    if (s && s.popped) { s.popped = false; renderStage(); }
+  });
+  prism.mini.onReturn(() => { if (currentView !== 'multiview') showView('multiview'); });
 
   // ---- Saved layouts --------------------------------------------------------
   const layoutsPanel = $('#layouts-panel');
@@ -527,7 +582,7 @@
   document.addEventListener('keydown', (e) => {
     if (currentView !== 'multiview' || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
-    const vis = visibleStreams();
+    const vis = stageStreams();
     const k = e.key.toLowerCase();
     if (/^[1-9]$/.test(k)) {
       const s = vis[Number(k) - 1];
@@ -552,6 +607,8 @@
       setLayout(S.layout === 'focus' ? 'grid' : 'focus');
     } else if (k === 'c') {
       $('#toggle-chat').click();
+    } else if (k === 'p') {
+      if (hoveredKey) popOut(hoveredKey);
     } else if (k === 'r') {
       if (hoveredKey) tiles.get(hoveredKey)?.reload();
     } else if (k === 'escape') {
@@ -1119,6 +1176,7 @@
     $('#chat-more').hidden = true;
     renderChatTabs();
     updateChatInput();
+    paintPoints();
     layout();
   }
 
@@ -1217,6 +1275,7 @@
     selfLogin = auth?.login?.toLowerCase() || null;
     chat.connect(auth);
     updateChatInput();
+    setTimeout(refreshPoints, 1500);
   }
 
   // =========================================================================
@@ -1301,8 +1360,9 @@
   function applySetting(k) {
     if (k === 'showKick') { applyKick(); renderAccounts(); }
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
-    if (k === 'twitchPlayer') {
-      for (const [key, t] of tiles) if (t.stream.platform === 'twitch') { delete t.stream.forceEmbed; t.destroy(); tiles.delete(key); }
+    if (k === 'twitchPlayer' || k === 'kickPlayer') {
+      const plat = k === 'twitchPlayer' ? 'twitch' : 'kick';
+      for (const [key, t] of tiles) if (t.stream.platform === plat) { delete t.stream.forceEmbed; t.destroy(); tiles.delete(key); }
       renderStage();
     }
     if (k === 'youtubeRowCount') Browse.youtube.applyYouTubeRows();
@@ -1453,8 +1513,8 @@
     const el = t.infoEl;
     if (!el) return;
     el.textContent = '';
-    if (t.stream.platform !== 'twitch') { el.hidden = true; return; }
-    const i = streamInfo.get(t.stream.id);
+    if (t.stream.platform === 'youtube') { el.hidden = true; return; }
+    const i = streamInfo.get(t.stream.platform === 'kick' ? 'kick:' + t.stream.id : t.stream.id);
     if (!i) { el.hidden = true; return; }
     el.hidden = false;
     if (!i.live) { el.append(h('div', { class: 'ti-meta', text: 'Offline' })); return; }
@@ -1474,9 +1534,14 @@
   }
   async function refreshStreamInfo() {
     const logins = streams.filter((s) => s.platform === 'twitch').map((s) => s.id);
-    if (!logins.length) return;
-    const res = await prism.twitchStreamInfo(logins).catch(() => ({}));
-    for (const [login, i] of Object.entries(res)) streamInfo.set(login, i);
+    if (logins.length) {
+      const res = await prism.twitchStreamInfo(logins).catch(() => ({}));
+      for (const [login, i] of Object.entries(res)) streamInfo.set(login, i);
+    }
+    for (const s of streams.filter((x) => x.platform === 'kick' && S.showKick)) {
+      const r = await prism.kick.playback(s.id).catch(() => null);
+      if (r && !r.error) streamInfo.set('kick:' + s.id, { live: !r.offline, title: r.title, viewers: r.viewers, game: r.game, startedAt: r.startedAt });
+    }
     paintAllTileInfo();
   }
   setInterval(refreshStreamInfo, 60000);
@@ -1498,6 +1563,49 @@
     if (currentView !== 'multiview') showView('multiview');
     if (p.auto) toast(`${p.label} went live and was added to multi-view.`);
   });
+
+  // =========================================================================
+  // Channel points (balance for the open chat, bonus auto-claim)
+  // =========================================================================
+  const pointsEl = $('#points');
+  const points = new Map(); // login -> { balance, channelId, claimId }
+  let claimBlockedNotified = false;
+  const fmtPoints = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? Math.round(n / 1000) + 'K' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n));
+  function paintPoints() {
+    const ch = currentTwitchChannel();
+    const p = ch && points.get(ch);
+    if (!p || p.balance == null) { pointsEl.hidden = true; return; }
+    const s = streams.find((x) => x.platform === 'twitch' && x.id === ch);
+    const lightweight = s && useNative(s);
+    pointsEl.hidden = false;
+    pointsEl.textContent = '◆ ' + fmtPoints(p.balance);
+    pointsEl.classList.toggle('warn', !!lightweight);
+    pointsEl.title = `${p.balance.toLocaleString()} channel points in #${ch}` +
+      (lightweight ? `\nThe lightweight player doesn't earn points. Use "${PLAT_NAMES.twitch}'s player" from the stream's ⋯ menu to earn them.` : '');
+  }
+  pointsEl.addEventListener('click', () => {
+    const ch = currentTwitchChannel();
+    const s = streams.find((x) => x.platform === 'twitch' && x.id === ch);
+    if (s && useNative(s)) setStreamPlayer(keyOf(s), 'embed'), toast(`${s.label || s.id} now uses Twitch's player and earns points.`);
+  });
+  async function refreshPoints() {
+    if (!chat.signedIn) { pointsEl.hidden = true; return; }
+    for (const s of streams.filter((x) => x.platform === 'twitch')) {
+      const r = await prism.points.get(s.id).catch(() => null);
+      if (!r || !r.signedIn || r.unavailable || r.error) continue;
+      points.set(s.id, r);
+      if (r.claimId && S.autoClaimPoints && !r.claimBlocked) {
+        const c = await prism.points.claim(r.channelId, r.claimId).catch(() => null);
+        if (c?.ok) { r.balance = c.balance; r.claimId = null; }
+        else if (c?.blocked && !claimBlockedNotified) {
+          claimBlockedNotified = true;
+          toast("Twitch didn't allow an automatic points claim here. Claim the bonus on twitch.tv instead.");
+        }
+      }
+    }
+    paintPoints();
+  }
+  setInterval(refreshPoints, 60000);
 
   // =========================================================================
   // Resizable sidebar and chat

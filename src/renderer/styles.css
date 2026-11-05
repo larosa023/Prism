@@ -461,3 +461,18 @@ img.fav { box-shadow: 0 0 0 1px rgba(255,255,255,.10); }
 .eg-emote { width: 40px; height: 36px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; display: grid; place-items: center; }
 .eg-emote:hover { background: var(--bg-3); }
 .eg-emote img { max-width: 36px; max-height: 30px; }
+
+/* ---- Tile menu ----------------------------------------------------------- */
+.tile-menu {
+  position: fixed; z-index: 60; min-width: 230px; padding: 4px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px rgba(0,0,0,.55);
+}
+.tm-item { display: flex; flex-direction: column; align-items: flex-start; width: 100%; border: 0; background: transparent;
+  text-align: left; padding: 7px 10px; border-radius: 7px; cursor: pointer; }
+.tm-item:hover { background: var(--bg-3); }
+.tm-item small { color: var(--muted); font-size: 11px; }
+
+/* ---- Channel points ------------------------------------------------------ */
+.points-pill { height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg-3);
+  color: var(--accent-2); font-weight: 700; font-size: 12px; cursor: default; flex: none; white-space: nowrap; }
+.points-pill.warn { color: var(--muted); cursor: pointer; }

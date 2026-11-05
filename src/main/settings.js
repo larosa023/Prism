@@ -34,7 +34,9 @@ const DEFAULTS = {
   autoAddChannels: [],      // logins that join multi-view on their own when they go live
 
   // Performance
-  twitchPlayer: 'native',   // 'native' = Prism's lightweight player, 'embed' = Twitch's own player
+  twitchPlayer: 'native',
+  kickPlayer: 'native',     // 'native' = lightweight player for Kick too, 'embed' = Kick's player
+  autoClaimPoints: true,    // claim Twitch channel-point bonuses automatically (when Twitch allows it)   // 'native' = Prism's lightweight player, 'embed' = Twitch's own player
   unloadInactiveTabs: true, // free RAM from browse tabs you're not looking at
   singleAudio: true,        // only one multi-view stream plays sound at a time
   chatMaxLines: 250,
@@ -54,7 +56,8 @@ const DEFAULTS = {
   chatWidth: 340,           // px, drag the chat panel's edge
   sidebarWidth: 56,         // px, drag the sidebar's edge (wider shows names + live list)
   lastView: 'multiview',
-  favicons: {}              // each site's own icon, picked up from its tab
+  favicons: {},
+  miniBounds: null          // where the pop-out player was last              // each site's own icon, picked up from its tab
 };
 
 let file;

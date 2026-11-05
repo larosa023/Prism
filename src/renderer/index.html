@@ -81,6 +81,7 @@
           <form id="chat-form" class="chat-form" autocomplete="off" hidden>
             <div class="chat-input-row">
               <input id="chat-input" type="text" maxlength="500" spellcheck="true" placeholder="Send a message">
+              <button type="button" class="points-pill" id="points" hidden></button>
               <button type="button" class="icon-btn emote-btn" id="emote-btn" title="Emotes">☺</button>
             </div>
             <div id="emote-picker" class="emote-picker" hidden>
@@ -180,6 +181,8 @@
 
         <div class="card">
           <h3>Chat</h3>
+          <label class="row"><span><b>Claim channel-point bonuses automatically</b><small>Shows your points next to the chat box. Twitch may block automatic claims; Prism tells you if it does.</small></span>
+            <input type="checkbox" class="switch" data-setting="autoClaimPoints"></label>
           <label class="row"><span><b>Sound when someone @mentions me</b><small>Plays a short chime when a message in an open chat mentions your name.</small></span>
             <input type="checkbox" class="switch" data-setting="mentionSound"></label>
           <label class="row"><span><b>Show recent messages when a chat opens</b><small>Loads the last 60 messages from the free recent-messages service, so chats don't start empty.</small></span>
@@ -201,6 +204,12 @@
               <option value="native">Lightweight (recommended)</option>
               <option value="embed">Twitch's player</option>
             </select></label>
+          <p class="muted small">Twitch only counts channel points and watch time in its own player. Pick "Twitch's player" for a single stream from its ⋯ menu.</p>
+          <label class="row"><span><b>Kick player</b><small>The lightweight player for Kick streams too (when Kick is on).</small></span>
+            <select data-setting="kickPlayer">
+              <option value="native">Lightweight (recommended)</option>
+              <option value="embed">Kick's player</option>
+            </select></label>
           <label class="row"><span><b>Unload idle tabs</b><small>Frees memory from a platform tab after 2 minutes away (unless it's playing sound).</small></span>
             <input type="checkbox" class="switch" data-setting="unloadInactiveTabs"></label>
           <label class="row"><span><b>One stream with sound</b><small>Unmuting a multi-view stream mutes the others.</small></span>
@@ -216,6 +225,7 @@
             <div class="k"><kbd>G</kbd></div><span>Switch between Grid and Focus</span>
             <div class="k"><kbd>C</kbd></div><span>Show or hide chat</span>
             <div class="k"><kbd>R</kbd></div><span>Reload the stream under the mouse</span>
+            <div class="k"><kbd>P</kbd></div><span>Pop the stream under the mouse out into a mini player</span>
             <div class="k"><kbd>Ctrl</kbd>+<kbd>L</kbd></div><span>Add a stream</span>
             <div class="k"><kbd>Esc</kbd></div><span>Close menus and cards</span>
           </div>

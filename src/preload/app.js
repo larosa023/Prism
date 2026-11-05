@@ -44,6 +44,18 @@ contextBridge.exposeInMainWorld('prism', {
   onFollowingUpdate: on('twitch:following-update'),
   twitchStreamInfo: (logins) => ipcRenderer.invoke('twitch:stream-info', logins),
   onAddStream: on('stream:add'),
+  kick: { playback: (slug) => ipcRenderer.invoke('kick:playback', slug) },
+  points: {
+    get: (login) => ipcRenderer.invoke('twitch:points', login),
+    claim: (channelId, claimId) => ipcRenderer.invoke('twitch:points-claim', channelId, claimId)
+  },
+  mini: {
+    open: (stream) => ipcRenderer.invoke('mini:open', stream),
+    close: () => ipcRenderer.invoke('mini:close'),
+    backToMultiview: (key) => ipcRenderer.invoke('mini:return', key),
+    onClosed: on('mini:closed'),
+    onReturn: on('mini:return')
+  },
   youtubeResolveLive: (url) => ipcRenderer.invoke('youtube:resolve-live', url),
   openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });

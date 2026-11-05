@@ -12,7 +12,10 @@ A lightweight, ad-light stream client for Windows. Twitch comes first, with YouT
 - **Stream info on tiles**: hover a Twitch tile for its title, game, viewers and uptime.
 - **Saved layouts**: save a set of streams and its layout under a name and reopen it in one click.
 - **Drag to rearrange**: drag a stream's name onto another tile to swap them (onto the big one in Focus to make it the main stream).
-- **Hotkeys**: `1`–`9` sound for that stream, `M` mute, `F` focus, `G` grid/focus, `C` chat, `R` reload.
+- **Pop-out mini player**: pop any stream into a small always-on-top window (⋯ menu or `P`); drag it anywhere, close it to put it back.
+- **Channel points**: your balance next to the chat box, with bonus auto-claim when Twitch allows it. Twitch only counts points and watch time in its own player, so switch a stream to "Twitch's player" from its ⋯ menu to earn them.
+- **Lightweight Kick player**: Kick streams use the same light player as Twitch (when Kick is on).
+- **Hotkeys**: `1`–`9` sound for that stream, `M` mute, `F` focus, `G` grid/focus, `C` chat, `R` reload, `P` pop out.
 - **Chat extras**: recent messages when a chat opens, click a name to see everything they said, Tab completion for emotes and @names, an emote picker, and a chime when you're @mentioned.
 - **Built-in ad blocking**: uBlock Origin's filter lists (Ads, Badware, Privacy, Quick fixes, Unbreak) plus EasyList and EasyPrivacy. You can turn lists on or off, allow specific sites, and add your own rules in uBO syntax.
 - **Twitch ads**: by default Prism runs pixeltris's [TwitchAdSolutions](https://github.com/pixeltris/TwitchAdSolutions) `video-swap-new` script on every Twitch page and player. It's the same script uBlock Origin loads with `userResourcesLocation` + `twitch.tv##+js(twitch-videoad)`. You can point it at another script (such as `vaft`), switch to Prism's simple built-in method, or turn it off.

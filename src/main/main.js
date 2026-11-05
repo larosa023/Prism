@@ -8,6 +8,7 @@ const updater = require('./updater');
 const twitchAds = require('./twitch-ads');
 require('./twitch-stream');
 const twitchLive = require('./twitch-live');
+const extras = require('./extras');
 
 // ---------------------------------------------------------------------------
 // Platforms. Each one gets its own saved session so sign-ins stick.
@@ -329,6 +330,7 @@ app.whenReady().then(async () => {
 
   twitchAds.init();
   createWindow();
+  extras.init({ send });
   twitchLive.init({
     send,
     focus: () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } }

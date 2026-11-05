@@ -43,9 +43,12 @@
     };
   }
 
+  // Plays Twitch (kind 'twitch', playlists through Prism's backend for tokens
+  // and ad handling) or Kick (kind 'kick', direct playback URL).
   class NativeTwitchPlayer {
-    constructor(login, { onStatus, onFatal, onLevels } = {}) {
+    constructor(login, { onStatus, onFatal, onLevels, kind = 'twitch' } = {}) {
       this.login = login;
+      this.kind = kind;
       this.onStatus = onStatus || (() => {});
       this.onFatal = onFatal || (() => {});
       this.onLevels = onLevels || (() => {});
@@ -61,12 +64,24 @@
       this.destroyed = false;
     }
 
-    start() {
+    async start() {
       if (this.destroyed) return;
       this.stopHls();
       this.onStatus('Loading…');
+      let source = MASTER_PREFIX + this.login;
+      if (this.kind === 'kick') {
+        const r = await prism.kick.playback(this.login).catch((e) => ({ error: String(e) }));
+        if (this.destroyed) return;
+        if (r.offline) {
+          this.onStatus(`${this.login} is offline. Checking again in a minute.`);
+          this.retryTimer = setTimeout(() => this.start(), 60000);
+          return;
+        }
+        if (!r.url) return this.onFatal(r.error || "couldn't get the Kick stream");
+        source = r.url;
+      }
       const hls = new Hls({
-        pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind)),
+        ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind)) } : {}),
         enableWorker: true,
         lowLatencyMode: false,
         // Keep only a few seconds of video in memory per stream.
@@ -109,7 +124,7 @@
         }
         this.onFatal(data.details || data.type);
       });
-      hls.loadSource(MASTER_PREFIX + this.login);
+      hls.loadSource(source);
       hls.attachMedia(this.video);
     }
 
@@ -152,7 +167,7 @@
       this.stopHls();
       this.video.removeAttribute('src');
       try { this.video.load(); } catch {}
-      prism.twitchStream.forget(this.login);
+      if (this.kind === 'twitch') prism.twitchStream.forget(this.login);
     }
   }
 
