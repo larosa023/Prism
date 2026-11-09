@@ -46,10 +46,20 @@ jobs:
           v="v$(node -p "require('./package.json').version")"
           gh release view "$v" >/dev/null 2>&1 || gh release create "$v" --title "Prism $v" --generate-notes
 
-      - name: Build and publish
-        run: npx electron-builder --win --publish always
+      # Build first, then upload. GitHub sometimes times out (504) on a
+      # download or upload, so each part is retried a few times.
+      - name: Build
+        shell: bash
+        run: |
+          for i in 1 2 3; do npx electron-builder --win --publish never && exit 0; echo "Build failed, retrying in 30s"; sleep 30; done; exit 1
+
+      - name: Upload to the release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          for i in 1 2 3 4; do gh release upload "$v" dist/*.exe dist/*.blockmap dist/latest.yml --clobber && exit 0; echo "Upload failed, retrying in 30s"; sleep 30; done; exit 1
 
       - name: Remove duplicate releases
         if: always()
