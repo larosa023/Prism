@@ -78,6 +78,7 @@
     if (name === 'rp') RP.show(); else RP.hide();
     if (prev === 'twitch') refreshChatAuth(); // you may have just signed in
     if (name === 'multiview') requestAnimationFrame(layout);
+    backgroundMultiview(name !== 'multiview');
     save({ lastView: name === 'settings' ? S.lastView : name });
   }
   $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
@@ -335,6 +336,23 @@
     return t;
   }
 
+  // While another tab is in front (YouTube, say), multi-view streams you can't
+  // hear stop downloading and decoding, so they don't slow that tab down.
+  // Streams you're listening to keep playing. Back in multi-view, they resume
+  // at live.
+  let bgTimer = null;
+  function backgroundMultiview(away) {
+    clearInterval(bgTimer);
+    if (!away) { for (const t of tiles.values()) t.player?.resume(); return; }
+    // Checked every few seconds, so streams that start while you're away
+    // (at launch, say) are caught too.
+    let first = Date.now();
+    bgTimer = setInterval(() => {
+      if (Date.now() - first < 8000) return;
+      for (const t of tiles.values()) if (t.player && t.stream.muted) t.player.suspend();
+    }, 4000);
+  }
+
   // What a stream sounds like: muted, "ducked" (quiet in the background
   // while another stream has the sound), or at its own volume.
   const duckLevel = () => Math.max(0.05, Math.min(0.6, Number(S.duckLevel) || 0.2));
@@ -345,6 +363,7 @@
     t.mutedTag.hidden = !st.muted && !ducked;
     t.mutedTag.textContent = st.muted ? 'Muted' : 'Quiet';
     t.setAudio(!!st.muted);
+    if (!st.muted && t.player?.suspended) t.player.resume();
     t.setVol?.((st.volume ?? 1) * (ducked ? duckLevel() : 1));
     // Full rewind buffer only for the stream you're listening to (or the
     // priority one); the rest keep 15 seconds, which saves a lot of memory.
@@ -1670,6 +1689,10 @@
       renderStage();
     }
     if (k === 'youtubeRowCount') Browse.youtube.applyYouTubeRows();
+    if (['youtubeAds', 'youtubeCodec', 'youtubeAmbient'].includes(k)) {
+      reloadYouTube();
+      if (k === 'youtubeAds') toast({ remove: 'YouTube ads removed.', skip: 'YouTube ads skipped as they start.', off: 'YouTube ad blocking off.' }[S.youtubeAds]);
+    }
     if (k === 'twitchPreviews') { Browse.twitch.reload(); toast('Twitch tab reloaded with the new preview setting.'); }
     if (k === 'twitchAdMethod') {
       reloadTwitch();
@@ -1678,6 +1701,19 @@
     }
     if (k === 'thirdPartyEmotes' && S.thirdPartyEmotes) loadEmotes();
     if (k === 'adblockEnabled') { toast(S.adblockEnabled ? 'Ad blocking on.' : 'Ad blocking off.'); prism.adblock.status().then(showAdblockStatus); }
+  }
+
+  function reloadYouTube() {
+    for (const t of tiles.values()) if (t.stream.platform === 'youtube' && t.wv) t.wv.reload();
+    Browse.youtube.reload();
+  }
+
+  // Can this PC's graphics card play AV1 video? If not, YouTube is asked for
+  // VP9 instead, so videos aren't decoded on the CPU.
+  if (navigator.mediaCapabilities) {
+    navigator.mediaCapabilities.decodingInfo({ type: 'media-source', video: { contentType: 'video/mp4; codecs="av01.0.08M.08"', width: 1920, height: 1080, bitrate: 4000000, framerate: 30 } })
+      .then((r) => { const hw = !!(r.supported && r.powerEfficient); if (S.av1Hardware !== hw) save({ av1Hardware: hw }); })
+      .catch(() => {});
   }
 
   function reloadTwitch() {

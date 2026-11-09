@@ -1,6 +1,17 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.9.0',
+    date: 'Nov 9, 2026',
+    items: [
+      'YouTube ad blocking: ads are removed from videos before they load, ad boxes are hidden around the site, and any ad that still starts plays muted and is skipped right away. Also closes YouTube\'s "Ad blockers are not allowed" box. Works in multi-view YouTube tiles too. Settings → Ad blocking → YouTube ads.',
+      'YouTube is faster: the ad blocker no longer watches every change on the page (on YouTube that ran constantly and piled up work the longer you browsed). YouTube is handled by Prism\'s own lighter ad blocker instead.',
+      'Less work while a video plays: ambient mode\'s glow is off, and PCs whose graphics card can\'t play AV1 video get VP9 instead, so video isn\'t decoded on the CPU. Both are in Settings → Site tweaks, plus an "H.264 only" option for older PCs.',
+      'While you\'re in another tab, muted multi-view streams stop downloading and playing, so they don\'t slow YouTube (or anything else) down. The stream you\'re listening to keeps playing, and the rest pick up at live when you go back.',
+      'Video downloads no longer pass through Prism on their way in; only the few requests that need it do.'
+    ]
+  },
+  {
     version: '0.8.5',
     date: 'Nov 5, 2026',
     items: ['Chat replies show who they\'re answering and what that person said ("↳ Replying to @name: …"). Click it to jump to the original message, or see that person\'s messages if it has scrolled away. Replies to you are highlighted like mentions.']

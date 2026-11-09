@@ -168,6 +168,12 @@
               <option value="builtin">Prism built-in</option>
               <option value="off">Off</option>
             </select></label>
+          <label class="row"><span><b>YouTube ads</b><small>Removes the ads YouTube sends with each video and hides ad boxes. Anything that still starts plays muted and is skipped right away. If videos ever take long to start, try "Skip only".</small></span>
+            <select data-setting="youtubeAds">
+              <option value="remove">Remove</option>
+              <option value="skip">Skip only</option>
+              <option value="off">Off</option>
+            </select></label>
           <div id="ad-script-box" class="ad-script">
             <div class="sub">Script address <small>(same as uBlock's <code>userResourcesLocation</code>; works with video-swap-new or vaft)</small></div>
             <input id="ad-script-url" class="text-input" type="text" spellcheck="false">
@@ -216,6 +222,14 @@
               <option value="image">Thumbnail only</option>
               <option value="off">Off</option>
             </select></label>
+          <label class="row"><span><b>YouTube video format</b><small>AV1 video is heavy work for graphics cards that can't decode it, so Prism asks for VP9 instead on those PCs. "H.264 only" is the lightest of all for old PCs, but caps quality at 1080p.</small></span>
+            <select data-setting="youtubeCodec">
+              <option value="auto">Automatic</option>
+              <option value="h264">H.264 only</option>
+              <option value="any">Whatever YouTube picks</option>
+            </select></label>
+          <label class="row"><span><b>YouTube ambient mode</b><small>The colored glow behind the video. Off saves CPU and graphics work while a video plays.</small></span>
+            <input type="checkbox" class="switch" data-setting="youtubeAmbient"></label>
           <label class="row"><span><b>YouTube videos per row</b><small>Like YouTube Row Fixer: fit more (or fewer) videos on the home and subscriptions pages.</small></span>
             <select data-setting="youtubeRowCount" data-number>
               <option value="0">YouTube default</option>

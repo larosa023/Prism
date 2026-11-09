@@ -20,7 +20,7 @@ async function authToken() {
 let integrity = null; // { token, deviceId, sessionId, version, at }
 const INTEGRITY_MAX_AGE = 10 * 60 * 60 * 1000;
 function watchTwitchHeaders() {
-  require('./request-hooks').onBeforeSendHeaders(twitchSession(), (d, headers) => {
+  require('./request-hooks').onBeforeSendHeaders(twitchSession(), ['https://gql.twitch.tv/*'], (d, headers) => {
     if (!/^https?:\/\/gql\.twitch\.tv\//.test(d.url)) return;
     const hdr = {};
     for (const [k, v] of Object.entries(headers)) hdr[k.toLowerCase()] = v;

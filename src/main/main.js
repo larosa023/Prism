@@ -81,7 +81,7 @@ function hostMatches(host, list) {
 const GOOGLE_SIGNIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
 const GOOGLE_SIGNIN_HOST = /^https:\/\/(accounts\.google\.com|accounts\.youtube\.com)\//;
 function googleSignInFix(ses) {
-  hooks.onBeforeSendHeaders(ses, (d, headers) => {
+  hooks.onBeforeSendHeaders(ses, ['https://accounts.google.com/*', 'https://accounts.youtube.com/*'], (d, headers) => {
     if (!GOOGLE_SIGNIN_HOST.test(d.url)) return;
     for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k];
     headers['User-Agent'] = GOOGLE_SIGNIN_UA;
@@ -93,15 +93,26 @@ function googleSignInFix(ses) {
   }
 }
 
-function setupSession(ses) {
+const YOUTUBE_PRELOAD = path.join(__dirname, '..', 'preload', 'youtube.js');
+function setupSession(ses, key) {
   ses.setUserAgent(CHROME_UA);
   googleSignInFix(ses);
+  if (key === 'youtube') {
+    try { ses.registerPreloadScript({ type: 'frame', id: 'prism-youtube', filePath: YOUTUBE_PRELOAD }); }
+    catch { ses.setPreloads([...ses.getPreloads(), YOUTUBE_PRELOAD]); }
+  }
   ses.setPermissionRequestHandler((_wc, permission, cb) => {
     cb(['fullscreen', 'clipboard-sanitized-write', 'pointerLock'].includes(permission));
   });
   ses.setPermissionCheckHandler((_wc, permission) => ['fullscreen', 'clipboard-sanitized-write'].includes(permission));
-  adblock.attach(ses);
+  adblock.attach(ses, { skipCsp: key === 'youtube' });
 }
+
+// Settings the YouTube page script needs before the page starts.
+ipcMain.on('youtube:config', (e) => {
+  const s = settings.get();
+  e.returnValue = { ads: s.youtubeAds, codec: s.youtubeCodec, av1Hardware: s.av1Hardware !== false, ambient: !!s.youtubeAmbient };
+});
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -372,7 +383,7 @@ ipcMain.handle('youtube:resolve-live', async (_e, url) => {
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
   settings.load();
-  for (const p of Object.values(PLATFORMS)) setupSession(session.fromPartition(p.partition));
+  for (const [k, p] of Object.entries(PLATFORMS)) setupSession(session.fromPartition(p.partition), k);
   session.defaultSession.setUserAgent(CHROME_UA);
 
   twitchAds.init();

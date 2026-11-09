@@ -37,6 +37,10 @@ const DEFAULTS = {
 
   // Site tweaks (built-in versions of popular extensions)
   twitchPreviews: 'video',  // hover previews in Twitch's sidebar: 'video' | 'image' | 'off'
+  youtubeAds: 'remove',     // 'remove' = strip ads from video data + skip leftovers, 'skip' = only fast-skip, 'off'
+  youtubeCodec: 'auto',     // 'auto' = no AV1 unless the GPU decodes it, 'h264' = H.264 only, 'any'
+  youtubeAmbient: false,    // YouTube's ambient-mode glow around the video
+  av1Hardware: true,        // measured by the app: can this PC decode AV1 in hardware?
   youtubeRowCount: 5,       // videos per row on YouTube (0 = YouTube's default)
 
   // Alerts

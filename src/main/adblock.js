@@ -80,10 +80,19 @@ function cacheKey(enabled) {
 }
 const isStale = (file) => { try { return Date.now() - fs.statSync(file).mtimeMs > MAX_AGE; } catch { return true; } };
 
+// YouTube gets Prism's own ad handling (preload/youtube.js), which is built for
+// it; the general page filtering is skipped there.
+const OWN_HANDLING = /^https?:\/\/([\w-]+\.)*(youtube\.com|youtube-nocookie\.com)\//;
+
 function finish(engine) {
-  // Skip cosmetic filtering on allowlisted sites.
+  // Don't watch every change on the page to look for more things to hide.
+  // On busy pages (YouTube, Twitch chat) that watcher ran on every change,
+  // talked to the app each time and piled up style sheets, which made long
+  // sessions slow. Page-wide and site-specific hiding still apply on load.
+  engine.config.enableMutationObserver = false;
   const inject = engine.onInjectCosmeticFilters;
-  engine.onInjectCosmeticFilters = (event, url, msg) => (isAllowlisted(url) ? Promise.resolve() : inject(event, url, msg));
+  engine.onInjectCosmeticFilters = (event, url, msg) =>
+    (isAllowlisted(url) || OWN_HANDLING.test(url) ? Promise.resolve() : inject(event, url, msg));
   return engine;
 }
 
@@ -139,10 +148,14 @@ async function build(force = false) {
 // session, so we manage those here to run one engine across every session.
 const IPC = ['@ghostery/adblocker/inject-cosmetic-filters', '@ghostery/adblocker/is-mutation-observer-enabled'];
 function clearIpc() { for (const c of IPC) ipcMain.removeHandler(c); }
+const noCsp = new WeakSet(); // sessions where page-policy rules are skipped
 function enableOn(ses) {
   if (!blocker || blocker.isBlockingEnabled(ses)) return;
   clearIpc();
   blocker.enableBlockingInSession(ses);
+  // Those rules only matter for a few rare sites; skipping them means pages'
+  // responses don't each wait on Prism.
+  if (noCsp.has(ses)) ses.webRequest.onHeadersReceived(null);
 }
 function disableOn(ses, engine = blocker) {
   if (!engine || !engine.isBlockingEnabled(ses)) return;
@@ -200,7 +213,8 @@ async function refreshLists() {
   return status;
 }
 
-function attach(ses) {
+function attach(ses, { skipCsp = false } = {}) {
+  if (skipCsp) noCsp.add(ses);
   if (!sessions.includes(ses)) sessions.push(ses);
   if (settings.get().adblockEnabled) enableOn(ses);
 }

@@ -66,7 +66,7 @@
     }
 
     async start() {
-      if (this.destroyed) return;
+      if (this.destroyed || this.suspended) return;
       this.stopHls();
       this.onStatus('Loading…');
       let source = MASTER_PREFIX + this.login;
@@ -183,6 +183,26 @@
       if (this.hls) this.hls.config.backBufferLength = sec;
     }
     canRewind() { return this.rewindSeconds > 0 && this.video.currentTime - this.earliest() > 3; }
+
+    // Stop downloading and decoding while nobody can see or hear it (multi-view
+    // is in the background); pick up again at live when it's back.
+    suspend() {
+      if (this.suspended || this.destroyed) return;
+      this.suspended = Date.now();
+      clearTimeout(this.retryTimer);
+      if (this.hls) { try { this.hls.stopLoad(); } catch {} }
+      this.video.pause();
+    }
+    resume() {
+      if (!this.suspended || this.destroyed) return;
+      const away = Date.now() - this.suspended;
+      this.suspended = 0;
+      // Briefly away: carry on from where the download stopped. Longer: reload
+      // at live (the old position is long gone from Twitch's playlist).
+      if (!this.hls || away > 20000) return this.start();
+      try { this.hls.startLoad(-1); } catch {}
+      this.goLive();
+    }
 
     setMuted(m) { this.video.muted = m; }
     setVolume(v) { this.video.volume = Math.max(0, Math.min(1, v)); }
