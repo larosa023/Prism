@@ -25,11 +25,21 @@
         this.context = context;
         const stats = this.stats;
         stats.loading.start = performance.now();
+        // If the backend never answers, report a timeout so hls.js asks again
+        // (otherwise the stream would sit frozen waiting forever).
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled || this.aborted) return;
+          settled = true;
+          callbacks.onTimeout ? callbacks.onTimeout(stats, context, null) : callbacks.onError({ code: 0, text: 'timeout' }, context, null, stats);
+        }, 12000);
         const job = context.url.startsWith(MASTER_PREFIX)
           ? prism.twitchStream.master(login).then((r) => (r.master ? { text: r.master } : r))
           : prism.twitchStream.playlist(login, context.url);
         job.then((r) => {
-          if (this.aborted) return;
+          clearTimeout(timer);
+          if (this.aborted || settled) return;
+          settled = true;
           stats.loading.first = stats.loading.end = performance.now();
           if (r.offline) return callbacks.onError({ code: 404, text: 'offline' }, context, null, stats);
           if (!r.text) return callbacks.onError({ code: r.status || 0, text: r.error || 'failed' }, context, null, stats);
@@ -37,7 +47,10 @@
           stats.loaded = stats.total = r.text.length;
           callbacks.onSuccess({ url: context.url, data: r.text }, stats, context, null);
         }).catch((e) => {
-          if (!this.aborted) callbacks.onError({ code: 0, text: String(e) }, context, null, stats);
+          clearTimeout(timer);
+          if (this.aborted || settled) return;
+          settled = true;
+          callbacks.onError({ code: 0, text: String(e) }, context, null, stats);
         });
       }
     };
@@ -46,7 +59,9 @@
   // Plays Twitch (kind 'twitch', playlists through Prism's backend for tokens
   // and ad handling) or Kick (kind 'kick', direct playback URL).
   class NativeTwitchPlayer {
-    constructor(login, { onStatus, onFatal, onLevels, kind = 'twitch', rewindSeconds = 60 } = {}) {
+    constructor(login, { onStatus, onFatal, onLevels, onLive, kind = 'twitch', rewindSeconds = 60 } = {}) {
+      this.onLive = onLive || (() => {});
+      this.live = null; // true / false once known
       this.rewindSeconds = rewindSeconds;
       this.login = login;
       this.kind = kind;
@@ -73,11 +88,7 @@
       if (this.kind === 'kick') {
         const r = await prism.kick.playback(this.login).catch((e) => ({ error: String(e) }));
         if (this.destroyed) return;
-        if (r.offline) {
-          this.onStatus(`${this.login} is offline. Checking again in a minute.`);
-          this.retryTimer = setTimeout(() => this.start(), 60000);
-          return;
-        }
+        if (r.offline) return this.wentOffline();
         if (!r.url) return this.onFatal(r.error || "couldn't get the Kick stream");
         source = r.url;
       }
@@ -103,31 +114,94 @@
       this.hls = hls;
       hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
         this.fatalCount = 0;
+        this.setLive(true);
         this.onStatus('');
         this.onLevels(data.levels.map((l, i) => ({ i, height: l.height, fps: Math.round(l.frameRate || 0), name: l.name })));
         this.applyQuality();
         this.video.play().catch(() => {});
       });
       hls.on(Hls.Events.FRAG_BUFFERED, () => { if (this.fatalCount) this.fatalCount = 0; });
-      hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (data.response && data.response.text === 'offline') {
-          this.onStatus(`${this.login} is offline. Checking again in a minute.`);
-          this.stopHls();
-          this.retryTimer = setTimeout(() => this.start(), 60000);
-          return;
+      // The stream ended (the playlist stopped being live): check whether
+      // they're offline now.
+      hls.on(Hls.Events.LEVEL_LOADED, (_e, data) => {
+        if (data.details && data.details.live === false && !this.endCheck) {
+          this.endCheck = setTimeout(() => { this.endCheck = null; this.start(); }, 4000);
         }
+      });
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.response && data.response.text === 'offline') return this.wentOffline();
         if (!data.fatal) return;
         this.fatalCount++;
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR && this.fatalCount <= 2) { hls.recoverMediaError(); return; }
-        if (this.fatalCount <= 3) {
+        // Network trouble: keep reconnecting (a stream ending looks like this
+        // too; the reconnect finds out they went offline). Only odd media
+        // problems hand the stream to the site's own player.
+        if (this.fatalCount <= 3 || data.type === Hls.ErrorTypes.NETWORK_ERROR) {
           this.onStatus('Reconnecting…');
-          this.retryTimer = setTimeout(() => this.start(), 2000 * this.fatalCount);
+          this.retryTimer = setTimeout(() => this.start(), Math.min(15000, 2000 * this.fatalCount));
           return;
         }
         this.onFatal(data.details || data.type);
       });
       hls.loadSource(source);
       hls.attachMedia(this.video);
+      this.watch();
+    }
+
+    setLive(live) {
+      if (this.live === live) return;
+      this.live = live;
+      this.onLive(live);
+    }
+
+    wentOffline() {
+      this.stopHls();
+      // Clear the picture so the last frame doesn't look like a frozen stream.
+      this.video.removeAttribute('src');
+      try { this.video.load(); } catch {}
+      this.setLive(false);
+      this.onStatus('');
+      this.retryTimer = setTimeout(() => this.start(), 30000); // checks again every 30 s
+    }
+
+    // ---- Freeze watchdog --------------------------------------------------
+    // Every 2 seconds: is the picture still moving? If a stream has been stuck
+    // for 6 s it's nudged to the live edge, at 12 s the decoder is reset, and
+    // at 20 s the stream is reloaded.
+    watch() {
+      clearInterval(this.watchTimer);
+      this.stuckSince = 0;
+      this.lastPos = -1;
+      this.lastFrames = -1;
+      this.nudged = 0;
+      this.watchTimer = setInterval(() => this.checkFrozen(), 2000);
+    }
+    checkFrozen() {
+      const v = this.video;
+      if (!this.hls || this.destroyed || this.suspended || this.live === false || !v.isConnected) { this.stuckSince = 0; return; }
+      const visible = document.visibilityState === 'visible' && v.offsetParent !== null;
+      const frames = visible && v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality().totalVideoFrames : -1;
+      const pos = v.currentTime;
+      // Moving if time advanced and (when we can see it) new frames were drawn.
+      const moving = pos !== this.lastPos && (frames < 0 || this.lastFrames < 0 || frames !== this.lastFrames);
+      this.lastPos = pos;
+      this.lastFrames = frames;
+      if (moving) { this.stuckSince = 0; this.nudged = 0; return; }
+      if (!this.stuckSince) { this.stuckSince = Date.now(); return; }
+      const stuck = Date.now() - this.stuckSince;
+      if (stuck >= 20000) {
+        this.onStatus('Stream froze, reloading…');
+        this.stuckSince = 0;
+        this.start();
+      } else if (stuck >= 12000 && this.nudged < 2) {
+        this.nudged = 2;
+        try { this.hls.recoverMediaError(); } catch {}
+        v.play().catch(() => {});
+      } else if (stuck >= 6000 && this.nudged < 1) {
+        this.nudged = 1;
+        this.goLive();
+        try { this.hls.startLoad(-1); } catch {}
+      }
     }
 
     adNotice(kind) {
@@ -202,6 +276,7 @@
       if (!this.hls || away > 20000) return this.start();
       try { this.hls.startLoad(-1); } catch {}
       this.goLive();
+      this.watch();
     }
 
     setMuted(m) { this.video.muted = m; }
@@ -209,6 +284,8 @@
 
     stopHls() {
       clearTimeout(this.retryTimer);
+      clearTimeout(this.endCheck); this.endCheck = null;
+      clearInterval(this.watchTimer);
       if (this.hls) { try { this.hls.destroy(); } catch {} this.hls = null; }
     }
 

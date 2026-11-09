@@ -320,6 +320,20 @@ input[type=range] { accent-color: var(--accent); }
   position: absolute; left: 8px; bottom: 8px; z-index: 2; pointer-events: none; max-width: 80%;
   font-size: 12px; padding: 4px 9px; border-radius: 6px; background: rgba(0,0,0,.7); color: var(--text);
 }
+.tile-offline {
+  position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  padding: 16px; text-align: center; background: repeating-linear-gradient(135deg, #111 0 14px, #151515 14px 28px);
+}
+.tile-offline[hidden] { display: none; }
+.tile-offline .off-badge { font-weight: 800; letter-spacing: .12em; font-size: 13px; padding: 4px 12px; border-radius: 999px; background: #3a3a3a; color: #ddd; }
+.tile-offline .off-name { font-size: 20px; font-weight: 700; color: var(--text); }
+.tile-offline .off-when { font-size: 12px; color: var(--muted); max-width: 340px; }
+.tile-offline .off-actions { display: flex; gap: 8px; margin-top: 6px; }
+.tile.is-offline { border-color: #444; }
+.tile.is-offline .tile-label { opacity: .6; }
+.tile.is-offline .tile-label::after { content: ' · offline'; color: var(--muted); font-weight: 400; }
+.tile.is-offline .tile-muted { display: none; }
+.chat-tab.is-offline, .mx-row.is-offline { opacity: .55; }
 .tile:fullscreen { border: 0; border-radius: 0; }
 
 /* ---- Add-stream suggestions --------------------------------------------- */

@@ -33,7 +33,7 @@ async function accessToken(login, playerType, withAuth = true) {
     variables: { isLive: true, login, isVod: false, vodID: '', playerType, platform: playerType === 'autoplay' ? 'android' : 'web' },
     extensions: { persistedQuery: { version: 1, sha256Hash: TOKEN_HASH } }
   };
-  const res = await net.fetch('https://gql.twitch.tv/gql', { method: 'POST', headers, body: JSON.stringify(body) });
+  const res = await net.fetch('https://gql.twitch.tv/gql', { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   const json = await res.json().catch(() => null);
   const tok = json?.data?.streamPlaybackAccessToken;
   if (!tok && auth) return accessToken(login, playerType, false); // sign-in rejected: try without it
@@ -85,7 +85,9 @@ function closestVariant(variants, target) {
 }
 
 async function fetchText(url) {
-  const res = await net.fetch(url, { cache: 'no-store' });
+  // A request that never finishes would freeze the stream, so give up after
+  // 10 seconds and let the player ask again.
+  const res = await net.fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
   return { status: res.status, text: res.status === 200 ? await res.text() : '' };
 }
 

@@ -230,6 +230,7 @@
         kind: s.platform,
         rewindSeconds: Number(S.rewindSeconds) || 0,
         onStatus: (msg) => { statusEl.textContent = msg; statusEl.hidden = !msg; },
+        onLive: (live) => setTileOffline(t, !live),
         onLevels: (levels) => {
           const opts = [['auto', 'Auto (fit tile)'], ['source', 'Source']];
           const seen = new Set();
@@ -309,7 +310,15 @@
       h('button', { class: 'tile-btn', title: 'Reload', text: '⟳', onclick: () => t.reload() }),
       h('button', { class: 'tile-btn', title: 'Remove', text: '✕', onclick: () => removeStream(key) })
     );
-    t.el = h('div', { class: 'tile', 'data-key': key }, media, bar, infoEl, statusEl, mutedTag, t.behindEl || null);
+    // Shown over the tile when the streamer is offline.
+    t.offEl = h('div', { class: 'tile-offline', hidden: true },
+      h('div', { class: 'off-badge', text: 'OFFLINE' }),
+      h('div', { class: 'off-name', text: s.label || s.id }),
+      h('div', { class: 'off-when' }),
+      h('div', { class: 'off-actions' },
+        h('button', { class: 'btn', text: 'Check now', onclick: () => t.reload() }),
+        h('button', { class: 'btn', text: 'Remove', onclick: () => removeStream(key) })));
+    t.el = h('div', { class: 'tile', 'data-key': key }, media, t.offEl, bar, infoEl, statusEl, mutedTag, t.behindEl || null);
     t.el.addEventListener('mouseenter', () => (hoveredKey = key));
     t.el.addEventListener('mouseleave', () => { if (hoveredKey === key) hoveredKey = null; });
     // Drag to move: anywhere on a lightweight player's video, or by the name / ⠿ handle.
@@ -560,7 +569,7 @@
       const ducked = !st.muted && st.ducked;
       const pct = h('span', { class: 'mx-pct' });
       const muteBtn = h('button', { class: 'icon-btn', onclick: () => setMuted(key, !st.muted) });
-      const row = h('div', { class: 'mx-row', 'data-key': key });
+      const row = h('div', { class: 'mx-row' + (tiles.get(key)?.offline ? ' is-offline' : ''), 'data-key': key });
       const slider = volumeSlider(st, 'mx-vol', () => {
         if (st.muted && st.volume > 0) st.muted = false;
         if (t) applyMute(t, { fromSlider: true });
@@ -603,6 +612,28 @@
 
   // ---- Rewind and clips -------------------------------------------------------
   const fmtBehind = (sec) => `−${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  // Offline: a clear "OFFLINE" card over the tile, the name greyed in the
+  // mixer and chat tabs, and a notice when someone goes offline mid-stream
+  // (or comes back).
+  function setTileOffline(t, offline) {
+    if (!t.offEl || t.offline === offline) return;
+    const was = t.offline;
+    t.offline = offline;
+    const name = t.stream.label || t.stream.id;
+    if (offline) {
+      t.offSince = was === false ? Date.now() : 0;
+      t.offEl.querySelector('.off-when').textContent = t.offSince
+        ? `Went offline at ${new Date(t.offSince).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. Prism checks every 30 seconds and picks them back up when they go live.`
+        : 'Not live right now. Prism checks every 30 seconds and starts the stream when they go live.';
+      if (was === false) toast(`${name} went offline.`);
+    } else if (was === true) {
+      toast(`${name} is live again.`);
+    }
+    t.offEl.hidden = !offline;
+    t.el?.classList.toggle('is-offline', offline);
+    document.querySelectorAll(`[data-key="${CSS.escape(keyOf(t.stream))}"]`).forEach((el) => { if (el !== t.el) el.classList.toggle('is-offline', offline); });
+  }
+
   function paintBehind(t) {
     if (!t?.behindEl || !t.player) return;
     const b = t.player.behind();
@@ -1466,7 +1497,7 @@
     if (!chatKey || !on.some((s) => keyOf(s) === chatKey)) { setChat(keyOf(on[0])); return; }
     for (const s of on) {
       const k = keyOf(s);
-      tabs.append(h('button', { class: 'chat-tab' + (k === chatKey ? ' on' : ''), title: `${s.label || s.id} · ${PLAT_NAMES[s.platform]}`, onclick: () => setChat(k) },
+      tabs.append(h('button', { class: 'chat-tab' + (k === chatKey ? ' on' : '') + (tiles.get(k)?.offline ? ' is-offline' : ''), 'data-key': k, title: `${s.label || s.id} · ${PLAT_NAMES[s.platform]}`, onclick: () => setChat(k) },
         h('span', { class: 'tl', text: s.label || s.id }),
         h('span', { class: 'x', text: '✕', title: 'Turn this chat off', onclick: (e) => { e.stopPropagation(); setChatOff(k, true); } })));
     }
@@ -1898,6 +1929,12 @@
     if (logins.length) {
       const res = await prism.twitchStreamInfo(logins).catch(() => ({}));
       for (const [login, i] of Object.entries(res)) streamInfo.set(login, i);
+      // Site-player tiles (no lightweight player to tell us): use the info.
+      for (const t of tiles.values()) {
+        if (t.player || t.stream.platform !== 'twitch') continue;
+        const i = res[t.stream.id.toLowerCase()] || res[t.stream.id];
+        if (i && typeof i.live === 'boolean') setTileOffline(t, !i.live);
+      }
     }
     for (const s of streams.filter((x) => x.platform === 'kick' && S.showKick)) {
       const r = await prism.kick.playback(s.id).catch(() => null);

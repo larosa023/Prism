@@ -1,6 +1,15 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.9.1',
+    date: 'Nov 9, 2026',
+    items: [
+      'Frozen streams fix themselves: each stream in multi-view is watched, and if its picture stops moving it\'s nudged back to live after 6 seconds, reset after 12, and reloaded after 20. Requests to Twitch that never answer now time out instead of leaving a stream stuck.',
+      'Offline is obvious: an offline stream shows a big OFFLINE card with the streamer\'s name (instead of a black or frozen picture), its name is greyed out in the tile, chat tabs and Mixer, and you get a notice when someone goes offline and when they\'re live again. Prism checks every 30 seconds and starts the stream by itself when they come back.',
+      'Update checks: when GitHub doesn\'t respond, Prism says so in one line and tries again by itself after 1, 3, 10 and 30 minutes.'
+    ]
+  },
+  {
     version: '0.9.0',
     date: 'Nov 9, 2026',
     items: [
