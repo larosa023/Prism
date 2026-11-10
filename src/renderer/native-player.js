@@ -56,10 +56,30 @@
     };
   }
 
+  // Past broadcasts: the playlist comes from Prism's backend (it needs a
+  // token); the rest loads directly like any web video.
+  function makeVodLoader(id) {
+    const Base = Hls.DefaultConfig.loader;
+    return class PrismVodLoader extends Base {
+      load(context, config, callbacks) {
+        if (!context.url.startsWith('prism-vod://')) return super.load(context, config, callbacks);
+        const stats = this.stats || emptyStats();
+        stats.loading.start = performance.now();
+        prism.twitchVodMaster(id).then((r) => {
+          stats.loading.first = stats.loading.end = performance.now();
+          if (!r.master) return callbacks.onError({ code: 0, text: r.error || 'failed' }, context, null, stats);
+          stats.loaded = stats.total = r.master.length;
+          callbacks.onSuccess({ url: context.url, data: r.master }, stats, context, null);
+        }).catch((e) => callbacks.onError({ code: 0, text: String(e) }, context, null, stats));
+      }
+    };
+  }
+
   // Plays Twitch (kind 'twitch', playlists through Prism's backend for tokens
   // and ad handling) or Kick (kind 'kick', direct playback URL).
   class NativeTwitchPlayer {
-    constructor(login, { onStatus, onFatal, onLevels, onLive, kind = 'twitch', rewindSeconds = 60 } = {}) {
+    constructor(login, { onStatus, onFatal, onLevels, onLive, kind = 'twitch', rewindSeconds = 60, startAt = 0 } = {}) {
+      this.startAt = startAt;
       this.onLive = onLive || (() => {});
       this.live = null; // true / false once known
       this.rewindSeconds = rewindSeconds;
@@ -85,6 +105,7 @@
       this.stopHls();
       this.onStatus('Loading…');
       let source = MASTER_PREFIX + this.login;
+      if (this.kind === 'clip') return this.startClip();
       if (this.kind === 'kick') {
         const r = await prism.kick.playback(this.login).catch((e) => ({ error: String(e) }));
         if (this.destroyed) return;
@@ -92,16 +113,19 @@
         if (!r.url) return this.onFatal(r.error || "couldn't get the Kick stream");
         source = r.url;
       }
+      if (this.kind === 'vod') source = 'prism-vod://' + this.login;
+      const vod = this.kind === 'vod';
       const hls = new Hls({
         ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind)) } : {}),
+        ...(vod ? { loader: makeVodLoader(this.login), startPosition: this.startAt || -1 } : {}),
         enableWorker: true,
         lowLatencyMode: false,
         // Keep only a few seconds of video in memory per stream.
-        maxBufferLength: 8,
-        maxMaxBufferLength: 16,
+        maxBufferLength: vod ? 20 : 8,
+        maxMaxBufferLength: vod ? 30 : 16,
         maxBufferSize: 16 * 1000 * 1000,
         // Video kept behind the playhead, so you can rewind (0 = no rewind).
-        backBufferLength: this.rewindSeconds,
+        backBufferLength: vod ? 10 : this.rewindSeconds,
         liveSyncDurationCount: 3,
         liveMaxLatencyDurationCount: 8,
         // Pick a quality that fits the tile, so small tiles don't decode 1080p.
@@ -124,12 +148,13 @@
       // The stream ended (the playlist stopped being live): check whether
       // they're offline now.
       hls.on(Hls.Events.LEVEL_LOADED, (_e, data) => {
-        if (data.details && data.details.live === false && !this.endCheck) {
+        if (this.isLive() && data.details && data.details.live === false && !this.endCheck) {
           this.endCheck = setTimeout(() => { this.endCheck = null; this.start(); }, 4000);
         }
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.response && data.response.text === 'offline') return this.wentOffline();
+        if (vod && data.fatal && data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) return this.onFatalVod(data.response?.text);
         if (!data.fatal) return;
         this.fatalCount++;
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR && this.fatalCount <= 2) { hls.recoverMediaError(); return; }
@@ -147,6 +172,29 @@
       hls.attachMedia(this.video);
       this.watch();
     }
+
+    isLive() { return this.kind === 'twitch' || this.kind === 'kick'; }
+
+    // A clip is a plain video file.
+    async startClip() {
+      const r = await prism.twitchClipUrl(this.login).catch((e) => ({ error: String(e) }));
+      if (this.destroyed) return;
+      if (!r.url) { this.onStatus(r.error || "Couldn't open that clip"); return; }
+      this.onStatus('');
+      this.video.loop = true;
+      this.video.src = r.url;
+      this.video.play().catch(() => {});
+      this.setLive(true);
+    }
+    onFatalVod(text) {
+      this.stopHls();
+      this.onStatus(text || "Couldn't play this broadcast");
+    }
+    // Past broadcasts and clips: position and length.
+    position() { return this.video.currentTime || 0; }
+    duration() { return isFinite(this.video.duration) ? this.video.duration : 0; }
+    seekTo(sec) { this.video.currentTime = Math.max(0, Math.min(this.duration() || sec, sec)); }
+    togglePause() { if (this.video.paused) this.video.play().catch(() => {}); else this.video.pause(); return this.video.paused; }
 
     setLive(live) {
       if (this.live === live) return;
@@ -178,7 +226,7 @@
     }
     checkFrozen() {
       const v = this.video;
-      if (!this.hls || this.destroyed || this.suspended || this.live === false || !v.isConnected) { this.stuckSince = 0; return; }
+      if (!this.hls || this.destroyed || this.suspended || this.live === false || !v.isConnected || (!this.isLive() && (v.paused || v.ended))) { this.stuckSince = 0; return; }
       const visible = document.visibilityState === 'visible' && v.offsetParent !== null;
       const frames = visible && v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality().totalVideoFrames : -1;
       const pos = v.currentTime;
@@ -192,6 +240,7 @@
       if (stuck >= 20000) {
         this.onStatus('Stream froze, reloading…');
         this.stuckSince = 0;
+        if (!this.isLive()) this.startAt = v.currentTime;
         this.start();
       } else if (stuck >= 12000 && this.nudged < 2) {
         this.nudged = 2;
@@ -199,7 +248,7 @@
         v.play().catch(() => {});
       } else if (stuck >= 6000 && this.nudged < 1) {
         this.nudged = 1;
-        this.goLive();
+        if (this.isLive()) this.goLive(); else v.currentTime += 0.2;
         try { this.hls.startLoad(-1); } catch {}
       }
     }
@@ -232,8 +281,9 @@
     // ---- Rewind ----------------------------------------------------------
     liveEdge() { return this.hls?.liveSyncPosition ?? (this.video.buffered.length ? this.video.buffered.end(this.video.buffered.length - 1) : 0); }
     earliest() { return this.video.buffered.length ? this.video.buffered.start(0) : this.video.currentTime; }
-    behind() { return Math.max(0, this.liveEdge() - this.video.currentTime); }
+    behind() { return this.isLive() ? Math.max(0, this.liveEdge() - this.video.currentTime) : 0; }
     seekBy(sec) {
+      if (!this.isLive()) { this.seekTo(this.video.currentTime + sec); return 0; }
       if (!this.hls) return 0;
       const target = Math.max(this.earliest() + 0.5, Math.min(this.liveEdge(), this.video.currentTime + sec));
       // While rewound, don't let the player jump back to live by itself.
@@ -245,7 +295,7 @@
       return this.behind();
     }
     goLive() {
-      if (!this.hls) return;
+      if (!this.hls || !this.isLive()) return;
       this.hls.config.liveMaxLatencyDurationCount = 8;
       const edge = this.hls.liveSyncPosition;
       if (edge) this.video.currentTime = edge;
@@ -273,6 +323,7 @@
       this.suspended = 0;
       // Briefly away: carry on from where the download stopped. Longer: reload
       // at live (the old position is long gone from Twitch's playlist).
+      if (!this.isLive()) { if (this.hls) try { this.hls.startLoad(); } catch {} this.video.play().catch(() => {}); this.watch(); return; }
       if (!this.hls || away > 20000) return this.start();
       try { this.hls.startLoad(-1); } catch {}
       this.goLive();

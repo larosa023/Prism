@@ -30,6 +30,11 @@
       const host = url.hostname.replace(/^(www|m|go|player|clips)\./, '');
       const parts = url.pathname.split('/').filter(Boolean);
 
+      // Past broadcasts and clips
+      if (url.hostname.replace(/^www\./, '') === 'clips.twitch.tv' && parts[0] && parts[0] !== 'embed') return { platform: 'vod', type: 'clip', id: parts[0] };
+      if (host === 'twitch.tv' && parts[0] === 'videos' && /^\d+$/.test(parts[1] || '')) return { platform: 'vod', type: 'vod', id: parts[1] };
+      if (host === 'twitch.tv' && parts[1] === 'clip' && parts[2]) return { platform: 'vod', type: 'clip', id: parts[2], channel: parts[0].toLowerCase() };
+      if (host === 'twitch.tv' && parts[1] === 'video' && /^\d+$/.test(parts[2] || '')) return { platform: 'vod', type: 'vod', id: parts[2], channel: parts[0].toLowerCase() };
       if (host === 'twitch.tv') {
         const ch = url.searchParams.get('channel') || (parts[0] === 'popout' ? parts[1] : parts[0]);
         return ch && !TWITCH_RESERVED.has(ch.toLowerCase()) ? twitch(ch) : null;

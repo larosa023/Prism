@@ -72,9 +72,11 @@
             </div>
             <span class="hint muted" id="drag-hint">Drag a stream to move it</span>
             <div class="grow"></div>
+            <button class="btn btn-ghost" id="theater-btn" title="Just the streams, full screen · T">Theater</button>
             <button class="btn btn-ghost" id="toggle-chat">Hide chat</button>
           </div>
           <div id="stage" class="stage"></div>
+          <button id="theater-exit" class="theater-exit" title="Leave theater mode · T or Esc">Exit theater ✕</button>
           <div id="empty" class="empty">
             <div class="empty-mark"></div>
             <h2>Nothing playing yet</h2>
@@ -85,6 +87,7 @@
           <div class="resizer resizer-left" id="chat-resizer" title="Drag to resize"></div>
           <div id="chat-tabs" class="chat-tabs"></div>
           <div id="chat-manage" class="chat-manage" hidden></div>
+          <div id="chat-top" class="chat-top" hidden></div>
           <div id="chat-body" class="chat-body"></div>
           <div id="chat-more" class="chat-more" hidden>New messages below</div>
           <form id="chat-form" class="chat-form" autocomplete="off" hidden>
@@ -116,7 +119,7 @@
     <section id="view-rp" class="view rp">
       <div class="rp-head">
         <div class="rp-title"><h1>NoPixel</h1><span id="rp-stats" class="muted"></span>
-          <div class="seg rp-view" id="rp-view"><button data-v="streamers" class="on">Streamers</button><button data-v="areas">Areas</button></div>
+          <div class="seg rp-view" id="rp-view"><button data-v="streamers" class="on">Streamers</button><button data-v="areas">Areas</button><button data-v="map">Map</button></div>
         </div>
         <div class="rp-tools">
           <input id="rp-search" type="text" spellcheck="false" placeholder="Search streamer, character or title">
@@ -284,6 +287,12 @@
             </select></label>
           <label class="row"><span><b>Unload idle tabs</b><small>Frees memory from a platform tab after 2 minutes away (unless it's playing sound).</small></span>
             <input type="checkbox" class="switch" data-setting="unloadInactiveTabs"></label>
+          <label class="row"><span><b>When a streamer raids</b><small>A banner shows the raid during its countdown. "Follow" switches the tile to the raided channel when the raid goes through (with Undo).</small></span>
+            <select data-setting="raidMode">
+              <option value="follow">Follow the raid</option>
+              <option value="ask">Ask me</option>
+              <option value="ignore">Do nothing</option>
+            </select></label>
           <label class="row"><span><b>One stream with sound</b><small>Giving a stream the sound turns the others down.</small></span>
             <input type="checkbox" class="switch" data-setting="singleAudio"></label>
           <label class="row"><span><b>Other streams</b><small>What the rest do when one has the sound: muted, or quiet in the background.</small></span>
@@ -340,6 +349,14 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <div id="vods" class="news-overlay" hidden>
+    <div class="news-box vods-box" role="dialog" aria-label="Past broadcasts and clips">
+      <div class="news-head"><h2 id="vods-title">Past broadcasts</h2><button class="icon-btn" id="vods-close" title="Close">✕</button></div>
+      <div class="seg vods-tabs" id="vods-tabs"></div>
+      <div id="vods-list" class="vods-list"></div>
+    </div>
+  </div>
+
   <div id="news" class="news-overlay" hidden>
     <div class="news-box" role="dialog" aria-label="What's new">
       <div class="news-head"><h2>What's new in Prism</h2><button class="icon-btn" id="news-close" title="Close">✕</button></div>
@@ -350,6 +367,7 @@
   <script src="../../node_modules/hls.js/dist/hls.light.min.js"></script>
   <script src="native-player.js"></script>
   <script src="changelog.js"></script>
+  <script src="np-map.js"></script>
   <script src="parse.js"></script>
   <script src="chat.js"></script>
   <script src="app.js"></script>

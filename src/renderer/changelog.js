@@ -1,6 +1,17 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.10.0',
+    date: 'Nov 10, 2026',
+    items: [
+      'Raids: when a streamer in multi-view raids someone, their tile shows it during the countdown, then switches to the raided channel in the same spot (with Undo). Choose Follow, Ask me or Do nothing in Settings → Performance.',
+      'Pinned messages and Hype Trains show at the top of chat: the train\'s level, progress and time left, and the pinned message (click to read all of it, ✕ to hide it).',
+      'Past broadcasts & clips: ⋯ → Past broadcasts & clips on any Twitch stream (or the button on an offline stream) lists their broadcasts, highlights and clips. They play in multi-view in the lightweight player, ads skipped, with a seek bar, Space to pause and ← → to skip. Broadcasts pick up where you left off. You can also paste a twitch.tv/videos or clip link into the Add box.',
+      'Theater mode: the Theater button (or T) goes full screen with only the streams. Move the mouse to the top for the exit button, or press T or Esc.',
+      'NoPixel map: a new Map view in the NoPixel tab shows a dot for each area with streamers in it, sized by how many are there, updating live. Click a dot to see who\'s there and Watch all. Scroll to zoom and drag to move. (A drawn sketch of the map, so positions are approximate.)'
+    ]
+  },
+  {
     version: '0.9.1',
     date: 'Nov 9, 2026',
     items: [

@@ -37,6 +37,7 @@ const DEFAULTS = {
 
   // Site tweaks (built-in versions of popular extensions)
   twitchPreviews: 'video',  // hover previews in Twitch's sidebar: 'video' | 'image' | 'off'
+  raidMode: 'follow',       // when a multi-view streamer raids: 'follow', 'ask' or 'ignore'
   youtubeAds: 'remove',     // 'remove' = strip ads from video data + skip leftovers, 'skip' = only fast-skip, 'off'
   youtubeCodec: 'auto',     // 'auto' = no AV1 unless the GPU decodes it, 'h264' = H.264 only, 'any'
   youtubeAmbient: false,    // YouTube's ambient-mode glow around the video

@@ -16,7 +16,7 @@
 
   const info = await prism.info();
   let S = await prism.settings.get();
-  const PLAT_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', kick: 'Kick' };
+  const PLAT_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', kick: 'Kick', vod: 'Twitch' };
 
   let toastTimer;
   function toast(msg, action) {
@@ -39,6 +39,7 @@
   const FALLBACK_TEXT = { twitch: 'TW', youtube: 'YT', tiktok: 'TT', kick: 'K' };
   const iconUrl = (p) => (S.favicons || {})[p] || `https://www.google.com/s2/favicons?domain=${SITE_DOMAINS[p]}&sz=64`;
   function siteIcon(p, cls = 'fav') {
+    if (p === 'vod') p = 'twitch';
     const img = h('img', { class: cls, src: iconUrl(p), alt: PLAT_NAMES[p], 'data-fav-img': p, draggable: 'false' });
     img.addEventListener('error', () => {
       const t = h('span', { class: cls + ' fav-text p-' + p, text: FALLBACK_TEXT[p] });
@@ -183,13 +184,17 @@
   let chatKey = null;
 
   const visibleStreams = () => streams.filter((s) => s.platform !== 'kick' || S.showKick);
-  const chatStreams = () => visibleStreams().filter((s) => !s.chatOff);
+  // Past broadcasts and clips have no live chat.
+  const chatStreams = () => visibleStreams().filter((s) => !s.chatOff && s.platform !== 'vod');
   const persistStreams = () => save({ streams: streams.map(({ forceEmbed, popped, ...rest }) => rest) });
 
   function playerUrl(s) {
     if (s.platform === 'twitch') return `https://player.twitch.tv/?channel=${encodeURIComponent(s.id)}&parent=twitch.tv&autoplay=true&muted=false`;
     if (s.platform === 'youtube') return `https://www.youtube.com/embed/${encodeURIComponent(s.id)}?autoplay=1&playsinline=1&rel=0`;
     if (s.platform === 'kick') return `https://player.kick.com/${encodeURIComponent(s.id)}?autoplay=true&muted=false`;
+    if (s.platform === 'vod') return s.id.startsWith('clip-')
+      ? `https://clips.twitch.tv/embed?clip=${encodeURIComponent(s.id.slice(5))}&parent=twitch.tv&autoplay=true`
+      : `https://player.twitch.tv/?video=${encodeURIComponent(s.id)}&parent=twitch.tv&autoplay=true`;
   }
 
   // Start players one after another (the one with sound first), so the first
@@ -210,9 +215,112 @@
   }
 
   const useNative = (s) => !s.forceEmbed && s.player !== 'embed' && window.NativeTwitchPlayer && window.Hls?.isSupported() &&
-    ((s.platform === 'twitch' && S.twitchPlayer !== 'embed') || (s.platform === 'kick' && S.kickPlayer !== 'embed'));
+    ((s.platform === 'twitch' && S.twitchPlayer !== 'embed') || (s.platform === 'kick' && S.kickPlayer !== 'embed') || s.platform === 'vod');
   // Streams shown in the grid (popped-out ones play in their own window).
   const stageStreams = () => visibleStreams().filter((s) => !s.popped);
+
+  // ---- Past broadcasts and clips in multi-view ------------------------------
+  const fmtClock = (sec) => {
+    sec = Math.max(0, Math.floor(sec));
+    const hh = Math.floor(sec / 3600), mm = Math.floor((sec % 3600) / 60), ss = sec % 60;
+    return (hh ? hh + ':' + String(mm).padStart(2, '0') : mm) + ':' + String(ss).padStart(2, '0');
+  };
+  let posSaveTimer = null;
+  function rememberVodPosition(id, sec, dur) {
+    const all = { ...(S.vodPositions || {}) };
+    if (dur && sec > dur - 30) delete all[id]; else all[id] = Math.floor(sec);
+    const keys = Object.keys(all);
+    if (keys.length > 200) for (const k of keys.slice(0, keys.length - 200)) delete all[k];
+    S.vodPositions = all;
+    clearTimeout(posSaveTimer);
+    posSaveTimer = setTimeout(() => save({ vodPositions: S.vodPositions }), 3000);
+  }
+  // Play/pause, a seek bar and the time, for a past broadcast or clip tile.
+  function vodControls(s, player, vodId, isClip) {
+    const play = h('button', { class: 'tile-btn', title: 'Play / pause · Space', text: '❚❚' });
+    const bar = h('input', { type: 'range', class: 'vod-seek', min: 0, max: 1, step: 1, value: 0, title: 'Seek' });
+    const time = h('span', { class: 'vod-time', text: '0:00' });
+    let dragging = false;
+    play.onclick = () => { player.togglePause(); paint(); };
+    bar.addEventListener('input', () => { dragging = true; time.textContent = fmtClock(bar.value) + ' / ' + fmtClock(player.duration()); });
+    bar.addEventListener('change', () => { player.seekTo(Number(bar.value)); dragging = false; });
+    const v = player.video;
+    function paint() {
+      const dur = player.duration(), pos = player.position();
+      play.textContent = v.paused ? '▶' : '❚❚';
+      if (!dragging) { bar.max = Math.max(1, Math.floor(dur)); bar.value = Math.floor(pos); time.textContent = fmtClock(pos) + (dur ? ' / ' + fmtClock(dur) : ''); }
+      bar.style.setProperty('--fill', dur ? (pos / dur) * 100 + '%' : '0%');
+    }
+    v.addEventListener('timeupdate', () => {
+      paint();
+      if (vodId && !isClip && player.position() > 5) rememberVodPosition(vodId, player.position(), player.duration());
+    });
+    v.addEventListener('play', paint); v.addEventListener('pause', paint); v.addEventListener('loadedmetadata', paint);
+    return h('div', { class: 'vod-controls' }, play, bar, time);
+  }
+  // The list of a channel's past broadcasts, highlights and clips.
+  let vodData = null, vodTab = 'videos';
+  async function openVodBrowser(login) {
+    $('#vods').hidden = false;
+    $('#vods-title').textContent = login + ' · past broadcasts & clips';
+    $('#vods-tabs').textContent = '';
+    $('#vods-list').textContent = '';
+    $('#vods-list').append(h('div', { class: 'rp-empty', text: 'Loading…' }));
+    const r = await prism.twitchVideos(login).catch((e) => ({ error: String(e) }));
+    if ($('#vods').hidden) return;
+    if (r.error) { $('#vods-list').textContent = ''; $('#vods-list').append(h('div', { class: 'rp-empty', text: r.error })); return; }
+    vodData = { ...r, login };
+    $('#vods-title').textContent = (r.name || login) + ' · past broadcasts & clips';
+    vodTab = r.videos.length ? 'videos' : 'clipsWeek';
+    renderVods();
+  }
+  function renderVods() {
+    const d = vodData;
+    const tabs = [['videos', 'Broadcasts', d.videos], ['highlights', 'Highlights', d.highlights], ['clipsWeek', 'Clips this week', d.clipsWeek], ['clipsAll', 'Top clips', d.clipsAll]];
+    const bar = $('#vods-tabs');
+    bar.textContent = '';
+    for (const [k, label, list] of tabs) {
+      bar.append(h('button', { class: k === vodTab ? 'on' : '', text: `${label} (${list.length})`, onclick: () => { vodTab = k; renderVods(); } }));
+    }
+    const list = $('#vods-list');
+    list.textContent = '';
+    const items = tabs.find((x) => x[0] === vodTab)[2];
+    if (!items.length) { list.append(h('div', { class: 'rp-empty', text: vodTab.startsWith('clips') ? 'No clips here.' : 'Nothing saved here. (Some streamers don\'t keep past broadcasts.)' })); return; }
+    const isClip = vodTab.startsWith('clips');
+    const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 60 ? m + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago'; };
+    for (const v of items) {
+      const id = isClip ? v.slug : v.id;
+      const pos = !isClip && (S.vodPositions || {})[v.id];
+      const card = h('button', { class: 'vod-card', title: v.title, onclick: () => {
+        $('#vods').hidden = true;
+        openVod({ type: isClip ? 'clip' : 'vod', id, channel: d.login, channelName: d.name, title: v.title });
+      } },
+      h('div', { class: 'vod-thumb' },
+        v.thumb ? h('img', { src: v.thumb, loading: 'lazy', alt: '' }) : h('div', { class: 'vod-nothumb', text: 'Processing' }),
+        h('span', { class: 'vod-len', text: fmtClock(v.seconds) }),
+        pos && v.seconds ? h('span', { class: 'vod-progress', style: `width:${Math.min(100, (pos / v.seconds) * 100)}%` }) : null),
+      h('div', { class: 'vod-title', text: v.title }),
+      h('div', { class: 'vod-meta', text: [ago(v.at), fmtViewers(v.views) + ' views', isClip && v.by ? 'clipped by ' + v.by : v.game].filter(Boolean).join(' · ') }));
+      list.append(card);
+    }
+  }
+  $('#vods-close').addEventListener('click', () => ($('#vods').hidden = true));
+  $('#vods').addEventListener('click', (e) => { if (e.target.id === 'vods') $('#vods').hidden = true; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#vods').hidden = true; });
+
+  function openVod(item) {
+    const id = item.type === 'clip' ? 'clip-' + item.id : 'v' + String(item.id).replace(/^v/, '');
+    const key = 'vod:' + id;
+    if (streams.some((x) => keyOf(x) === key)) { showView('multiview'); return toast('Already in multi-view.'); }
+    const anyUnmuted = streams.some((x) => !x.muted && (x.platform !== 'kick' || S.showKick));
+    streams.push({ platform: 'vod', id, channel: item.channel, label: `${item.channelName || item.channel} · ${item.title || (item.type === 'clip' ? 'Clip' : 'Past broadcast')}`.slice(0, 80),
+      muted: S.singleAudio && anyUnmuted });
+    persistStreams();
+    renderStage();
+    showView('multiview');
+    const pos = item.type !== 'clip' && (S.vodPositions || {})[String(item.id).replace(/^v/, '')];
+    toast(pos ? `Picking up where you left off (${fmtClock(pos)}).` : item.type === 'clip' ? 'Playing the clip.' : 'Playing the past broadcast.');
+  }
 
   function makeTile(s) {
     const key = keyOf(s);
@@ -226,8 +334,11 @@
     let media;
     if (useNative(s)) {
       // Lightweight player: a <video> in this window, no extra browser process.
-      const player = new NativeTwitchPlayer(s.id, {
-        kind: s.platform,
+      const isClip = s.platform === 'vod' && s.id.startsWith('clip-');
+      const vodId = s.platform === 'vod' ? (isClip ? s.id.slice(5) : s.id.replace(/^v/, '')) : null;
+      const player = new NativeTwitchPlayer(vodId || s.id, {
+        kind: s.platform === 'vod' ? (isClip ? 'clip' : 'vod') : s.platform,
+        startAt: vodId && !isClip ? Number((S.vodPositions || {})[vodId]) || 0 : 0,
         rewindSeconds: Number(S.rewindSeconds) || 0,
         onStatus: (msg) => { statusEl.textContent = msg; statusEl.hidden = !msg; },
         onLive: (live) => setTileOffline(t, !live),
@@ -260,9 +371,10 @@
         else applyMute(t, { fromSlider: true });
         if (!$('#mixer-panel').hidden) renderMixer();
       });
+      if (s.platform === 'vod') extra.append(vodControls(s, player, vodId, isClip));
       extra.append(volume, quality);
       // Rewind / go live / clip
-      if (Number(S.rewindSeconds) > 0) {
+      if (Number(S.rewindSeconds) > 0 && s.platform !== 'vod') {
         extra.append(h('button', { class: 'tile-btn', title: 'Rewind 10s (Shift: 30s) · ←', text: '⟲',
           onclick: (e) => { player.seekBy(e.shiftKey ? -30 : -10); paintBehind(t); } }));
       }
@@ -317,6 +429,7 @@
       h('div', { class: 'off-when' }),
       h('div', { class: 'off-actions' },
         h('button', { class: 'btn', text: 'Check now', onclick: () => t.reload() }),
+        s.platform === 'twitch' ? h('button', { class: 'btn', text: 'Past broadcasts', onclick: () => openVodBrowser(s.id) }) : null,
         h('button', { class: 'btn', text: 'Remove', onclick: () => removeStream(key) })));
     t.el = h('div', { class: 'tile', 'data-key': key }, media, t.offEl, bar, infoEl, statusEl, mutedTag, t.behindEl || null);
     t.el.addEventListener('mouseenter', () => (hoveredKey = key));
@@ -410,6 +523,7 @@
   }
 
   function renderStage() {
+    try { Raids.syncSoon(); } catch {} // (not set up yet during startup)
     const vis = stageStreams();
     const keys = new Set(vis.map(keyOf));
     for (const [k, t] of tiles) if (!keys.has(k)) { t.destroy(); tiles.delete(k); }
@@ -491,6 +605,7 @@
 
   async function addStream(parsed) {
     if (!parsed) return toast("That doesn't look like a Twitch name or a Twitch / YouTube / Kick link.");
+    if (parsed.platform === 'vod') return openVod({ type: parsed.type, id: parsed.id, channel: parsed.channel || '', title: '' });
     if (parsed.platform === 'kick' && !S.showKick) return toast('Turn on Kick in Settings to add Kick streams.');
     if (parsed.resolve) {
       toast('Finding the live stream…');
@@ -612,6 +727,114 @@
 
   // ---- Rewind and clips -------------------------------------------------------
   const fmtBehind = (sec) => `−${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+  // ---- Raids ---------------------------------------------------------------
+  // Twitch announces raids on its notification feed (the same one twitch.tv
+  // uses, no sign-in needed). When a streamer in multi-view raids someone, the
+  // tile shows it during the countdown, then switches to the raided channel
+  // (or offers to, depending on Settings).
+  const Raids = (() => {
+    let ws = null, topics = new Map(), pingTimer = null, delay = 2000, syncTimer = null;
+    const pending = new Map(); // source login -> raid
+    const dismissed = new Set(); // raid ids you chose to stay for
+    const send = (type, ids) => { try { ws.send(JSON.stringify({ type, nonce: Math.random().toString(36).slice(2), data: { topics: ids.map((i) => 'raid.' + i) } })); } catch {} };
+    async function sync() {
+      const logins = streams.filter((x) => x.platform === 'twitch').map((x) => x.id.toLowerCase());
+      if (S.raidMode === 'ignore' || !logins.length) { topics = new Map(); if (ws) { try { ws.close(); } catch {} ws = null; } return; }
+      const ids = await prism.twitchUserIds(logins).catch(() => ({}));
+      if (ids.error) return;
+      const want = new Map(Object.entries(ids).map(([l, id]) => [id, l]));
+      const add = [...want.keys()].filter((id) => !topics.has(id));
+      const drop = [...topics.keys()].filter((id) => !want.has(id));
+      topics = want;
+      if (!ws || ws.readyState > 1) return connect();
+      if (ws.readyState === 1) { if (add.length) send('LISTEN', add); if (drop.length) send('UNLISTEN', drop); }
+    }
+    function connect() {
+      if (!topics.size) return;
+      ws = new WebSocket('wss://pubsub-edge.twitch.tv/v1');
+      ws.onopen = () => {
+        delay = 2000;
+        send('LISTEN', [...topics.keys()]);
+        clearInterval(pingTimer);
+        pingTimer = setInterval(() => { try { ws.send('{"type":"PING"}'); } catch {} }, 4 * 60 * 1000);
+      };
+      ws.onmessage = (m) => {
+        let d; try { d = JSON.parse(m.data); } catch { return; }
+        if (d.type === 'RECONNECT') { try { ws.close(); } catch {} return; }
+        if (d.type !== 'MESSAGE' || !d.data?.topic?.startsWith('raid.')) return;
+        let msg; try { msg = JSON.parse(d.data.message); } catch { return; }
+        const login = topics.get(d.data.topic.slice(5));
+        if (login && msg.raid) onRaid(login, msg.type, msg.raid);
+      };
+      ws.onclose = () => {
+        clearInterval(pingTimer);
+        const me = ws;
+        setTimeout(() => { if (ws === me && topics.size) connect(); }, delay);
+        delay = Math.min(60000, delay * 2);
+      };
+    }
+    function onRaid(login, type, raid) {
+      const t = tiles.get('twitch:' + login);
+      const target = { login: String(raid.target_login || '').toLowerCase(), name: raid.target_display_name || raid.target_login, viewers: raid.viewer_count || 0 };
+      if (!target.login) return;
+      if (type === 'raid_cancel_v2') { pending.delete(login); paint(t, null); return; }
+      if (type === 'raid_update_v2') { pending.set(login, { ...target, id: raid.id }); paint(t, pending.get(login)); return; }
+      if (type === 'raid_go_v2') {
+        pending.delete(login);
+        paint(t, null);
+        if (dismissed.has(raid.id)) return;
+        const src = streams.find((x) => x.platform === 'twitch' && x.id.toLowerCase() === login);
+        if (!src) return;
+        if (S.raidMode === 'ask') {
+          toast(`${src.label || login} raided ${target.name}.`, { label: 'Follow raid', run: () => follow(login, target) });
+        } else follow(login, target);
+      }
+    }
+    // The banner on the raiding streamer's tile during the countdown.
+    function paint(t, r) {
+      if (!t) return;
+      t.raidEl?.remove();
+      t.raidEl = null;
+      if (!r) return;
+      const auto = S.raidMode !== 'ask';
+      t.raidEl = h('div', { class: 'tile-raid' },
+        h('span', { class: 'raid-txt', text: `Raiding ${r.name}${r.viewers ? ` with ${fmtViewers(r.viewers)} viewers` : ''}` + (auto ? ' · following when it starts' : '') }),
+        h('button', { class: 'btn btn-accent', text: 'Follow now', onclick: () => { dismissed.add(r.id); follow(t.stream.id.toLowerCase(), r); } }),
+        h('button', { class: 'btn', text: 'Stay', onclick: () => { dismissed.add(r.id); paint(t, null); } }));
+      t.el.append(t.raidEl);
+    }
+    // Swap the raiding streamer's tile for the raided channel, in the same spot.
+    function follow(login, target, quiet) {
+      const s = streams.find((x) => x.platform === 'twitch' && x.id.toLowerCase() === login);
+      if (!s) return;
+      const oldKey = keyOf(s);
+      const newKey = 'twitch:' + target.login;
+      const wasChat = chatKey === oldKey;
+      paint(tiles.get(oldKey), null);
+      if (streams.some((x) => keyOf(x) === newKey)) {
+        removeStream(oldKey);
+        if (!quiet) toast(`${s.label || login} raided ${target.name}, who's already here.`);
+        return;
+      }
+      const t = tiles.get(oldKey);
+      if (t) { t.destroy(); tiles.delete(oldKey); }
+      chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id);
+      const back = { login: s.id, name: s.label || s.id };
+      s.id = target.login;
+      s.label = target.name;
+      persistStreams();
+      if (!s.chatOff) joinChat(s.id);
+      renderStage();
+      if (wasChat) setChat(newKey);
+      refreshStreamInfo();
+      if (!quiet) toast(`Followed the raid: ${back.name} → ${target.name}`, { label: 'Undo', run: () => follow(target.login, back, true) });
+    }
+    return {
+      syncSoon() { clearTimeout(syncTimer); syncTimer = setTimeout(() => sync().catch(() => {}), 1500); }
+    };
+  })();
+  Raids.syncSoon();
+
   // Offline: a clear "OFFLINE" card over the tile, the name greyed in the
   // mixer and chat tabs, and a notice when someone goes offline mid-stream
   // (or comes back).
@@ -650,6 +873,34 @@
     toast(`Saved a ${r.seconds}s clip of ${s.label || s.id}.`, { label: 'Show in folder', run: () => prism.twitchStream.showClip(r.file) });
   }
   // The stream hotkeys act on: under the mouse, else the priority, else the one with sound.
+  // ---- Theater mode: hide everything but the streams, full screen ----------
+  let peekTimer = null;
+  function setTheater(on) {
+    if (on === document.body.classList.contains('theater')) return;
+    if (on && currentView !== 'multiview') showView('multiview');
+    document.body.classList.toggle('theater', on);
+    if (on) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+      toast('Theater mode · press T or Esc to leave');
+      document.body.classList.add('theater-peek');
+      clearTimeout(peekTimer);
+      peekTimer = setTimeout(() => document.body.classList.remove('theater-peek'), 2500);
+    } else if (document.fullscreenElement === document.documentElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    requestAnimationFrame(layout);
+  }
+  $('#theater-btn').addEventListener('click', () => setTheater(true));
+  $('#theater-exit').addEventListener('click', () => setTheater(false));
+  // Leaving full screen (Esc, or the window's own controls) ends theater mode.
+  document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.body.classList.contains('theater')) setTheater(false); });
+  document.addEventListener('mousemove', (e) => {
+    if (!document.body.classList.contains('theater') || e.clientY > 60) return;
+    document.body.classList.add('theater-peek');
+    clearTimeout(peekTimer);
+    peekTimer = setTimeout(() => document.body.classList.remove('theater-peek'), 2000);
+  });
+
   function targetTile() {
     const key = hoveredKey || prioKey || keyOf(stageStreams().find((x) => !x.muted) || {});
     return tiles.get(key);
@@ -755,8 +1006,12 @@
         else item(`Use ${site}'s player`, s.platform === 'twitch' ? 'Earns channel points and watch time' : 'The official player', () => setStreamPlayer(key, 'embed'));
       }
     }
+    if (s.platform === 'twitch') item('Past broadcasts & clips', 'Watch earlier streams here, ads skipped', () => openVodBrowser(s.id));
+    if (s.platform === 'vod' && s.channel) item('More from ' + s.channel, 'Past broadcasts & clips', () => openVodBrowser(s.channel));
     item('Open on ' + PLAT_NAMES[s.platform], '', () => prism.openExternal(
-      s.platform === 'twitch' ? `https://www.twitch.tv/${s.id}` : s.platform === 'kick' ? `https://kick.com/${s.id}` : `https://www.youtube.com/watch?v=${s.id}`));
+      s.platform === 'twitch' ? `https://www.twitch.tv/${s.id}` : s.platform === 'kick' ? `https://kick.com/${s.id}`
+        : s.platform === 'vod' ? (s.id.startsWith('clip-') ? `https://clips.twitch.tv/${s.id.slice(5)}` : `https://www.twitch.tv/videos/${s.id.slice(1)}`)
+          : `https://www.youtube.com/watch?v=${s.id}`));
     const r = e.target.getBoundingClientRect();
     tileMenu.hidden = false;
     tileMenu.style.left = Math.min(r.left, window.innerWidth - tileMenu.offsetWidth - 8) + 'px';
@@ -879,9 +1134,11 @@
       setLayout(S.layout === 'focus' ? 'grid' : 'focus');
     } else if (k === 'c') {
       $('#toggle-chat').click();
+    } else if (k === ' ' && targetTile()?.stream.platform === 'vod') {
+      targetTile().player.togglePause();
     } else if (k === 'arrowleft' || k === 'arrowright') {
       const t = targetTile();
-      if (!t?.player || !(Number(S.rewindSeconds) > 0)) return;
+      if (!t?.player || (!(Number(S.rewindSeconds) > 0) && t.stream.platform !== 'vod')) return;
       t.player.seekBy((k === 'arrowleft' ? -1 : 1) * (e.shiftKey ? 30 : 10));
       paintBehind(t);
     } else if (k === 'l') {
@@ -895,8 +1152,11 @@
       if (hoveredKey) popOut(hoveredKey);
     } else if (k === 'r') {
       if (hoveredKey) tiles.get(hoveredKey)?.reload();
+    } else if (k === 't') {
+      setTheater(!document.body.classList.contains('theater'));
     } else if (k === 'escape') {
       layoutsPanel.hidden = true;
+      if (document.body.classList.contains('theater')) setTheater(false);
     } else return;
     e.preventDefault();
   });
@@ -1475,11 +1735,69 @@
     for (const x of panes.values()) x.el.classList.toggle('on', x === p);
     if (p.kind === 'twitch' && p.stick) p.el.scrollTop = p.el.scrollHeight;
     $('#chat-more').hidden = true;
+    ChatTop.show(s.platform === 'twitch' ? s.id.toLowerCase() : null);
     renderChatTabs();
     updateChatInput();
     paintPoints();
     layout();
   }
+
+  // ---- Above chat: the pinned message and a running hype train --------------
+  const ChatTop = (() => {
+    let login = null, data = null, timer = null, tick = null;
+    const hidden = new Set(); // pinned messages you closed
+    async function load() {
+      const l = login;
+      if (!l) return;
+      const r = await prism.twitchChatExtras(l).catch(() => null);
+      if (l !== login || !r || r.error) return;
+      data = r;
+      paint();
+    }
+    function paint() {
+      const el = $('#chat-top');
+      el.textContent = '';
+      clearInterval(tick); tick = null;
+      const hype = data?.hype && (!data.hype.endsAt || new Date(data.hype.endsAt) > Date.now()) ? data.hype : null;
+      const pin = data?.pinned && !hidden.has(data.pinned.id) && (!data.pinned.endsAt || new Date(data.pinned.endsAt) > Date.now()) ? data.pinned : null;
+      if (hype) {
+        const pct = Math.max(0, Math.min(100, Math.round((hype.progress / Math.max(1, hype.goal)) * 100)));
+        const left = h('span', { class: 'hype-left' });
+        const upd = () => {
+          const ms = hype.endsAt ? new Date(hype.endsAt) - Date.now() : 0;
+          if (hype.endsAt && ms <= 0) { paint(); return; }
+          left.textContent = hype.endsAt ? fmtClock(ms / 1000) + ' left' : '';
+        };
+        upd();
+        tick = setInterval(upd, 1000);
+        el.append(h('div', { class: 'hype' + (hype.golden ? ' golden' : '') },
+          h('div', { class: 'hype-row' }, h('b', { text: (hype.golden ? 'Golden Kappa Train' : 'Hype Train') + ` · Level ${hype.level}` }), h('span', { text: pct + '%' }), left),
+          h('div', { class: 'hype-bar' }, h('i', { style: `width:${pct}%` }))));
+      }
+      if (pin) {
+        const text = h('div', { class: 'pin-text' }, h('b', { text: pin.name + ': ', style: pin.color ? `color:${pin.color}` : '' }), pin.text);
+        text.onclick = () => text.classList.toggle('open');
+        el.append(h('div', { class: 'pin' },
+          h('div', { class: 'pin-head' }, h('span', { text: '📌 Pinned' + (pin.by ? ' by ' + pin.by : '') }),
+            h('button', { class: 'pin-x', title: 'Hide', text: '✕', onclick: () => { hidden.add(pin.id); paint(); } })),
+          text));
+      }
+      el.hidden = !el.childElementCount;
+    }
+    return {
+      // Called when the chat being shown changes.
+      show(newLogin) {
+        if (newLogin === login) return;
+        login = newLogin;
+        data = null;
+        paint();
+        clearInterval(timer);
+        if (!login) return;
+        load();
+        timer = setInterval(load, 30000);
+      }
+    };
+  })();
 
   function renderChatTabs() {
     const vis = visibleStreams();
@@ -1488,6 +1806,7 @@
     tabs.textContent = '';
     if (!on.length) {
       chatKey = null;
+      ChatTop.show(null);
       chatBody.querySelectorAll('.chat-pane').forEach((p) => p.classList.remove('on'));
       $('#chat-form').hidden = true;
       $('#chat-signin').hidden = true;
@@ -1720,6 +2039,7 @@
       renderStage();
     }
     if (k === 'youtubeRowCount') Browse.youtube.applyYouTubeRows();
+    if (k === 'raidMode') Raids.syncSoon();
     if (['youtubeAds', 'youtubeCodec', 'youtubeAmbient'].includes(k)) {
       reloadYouTube();
       if (k === 'youtubeAds') toast({ remove: 'YouTube ads removed.', skip: 'YouTube ads skipped as they start.', off: 'YouTube ad blocking off.' }[S.youtubeAds]);
@@ -2219,6 +2539,8 @@
 
       if (view === 'areas') {
         renderAreas(body, L, added);
+      } else if (view === 'map') {
+        renderMap(body, L, added);
       } else {
         if (!q) renderScenes(body);
         renderGroups(body, q);
@@ -2249,6 +2571,52 @@
         }
       }
       $('#view-rp').scrollTop = keepScroll;
+    }
+
+    // ---- Live map: a dot for each area with streamers in it ------------------
+    const mapView = { x: 0, y: 0, k: 1 };
+    let mapSel = null;
+    function renderMap(body, L, added) {
+      const byArea = new Map();
+      let unknown = 0;
+      for (const x of L) {
+        const l = locations.get(x.login);
+        if (!l?.area) { unknown++; continue; }
+        if (!byArea.has(l.area)) byArea.set(l.area, { area: l.area, region: l.region, people: [] });
+        byArea.get(l.area).people.push(x);
+      }
+      const areas = [...byArea.values()];
+      if (mapSel && !byArea.has(mapSel)) mapSel = null;
+      const host = h('div', { class: 'npm-map' });
+      const side = h('div', { class: 'npm-side' });
+      const wrap = h('div', { class: 'npm' }, host, side);
+      body.append(h('div', { class: 'rp-locstatus', id: 'rp-locstatus', text: locText() }), wrap);
+      const off = window.NPMap.draw(host, areas, { view: mapView, selected: mapSel, onSelect: (a) => { mapSel = a; render(); } });
+      host.append(h('div', { class: 'npm-hint', text: 'Scroll to zoom · drag to move · double-click to reset' }));
+
+      const person = (x) => h('div', { class: 'rp-a-who' + (added.has(x.login) ? ' added' : ''), title: x.title, onclick: () => {
+        if (!added.has(x.login)) { addStream({ platform: 'twitch', id: x.login, label: x.name }); toast(`Added ${x.name} to multi-view.`); render(); }
+      } }, x.avatar ? h('img', { src: x.avatar, alt: '' }) : h('span', { class: 'ph' }),
+        h('span', { class: 'n', text: x.name }), x.char ? h('span', { class: 'c', text: x.char }) : null, h('span', { class: 'v', text: fmtViewers(x.viewers) }));
+      if (mapSel) {
+        const a = byArea.get(mapSel);
+        side.append(h('div', { class: 'rp-a-top' }, h('b', { text: a.area }), h('span', { class: 'muted small', text: `${a.people.length} here` })),
+          h('div', { class: 'muted small', text: a.region }),
+          h('button', { class: 'btn btn-accent npm-watch', text: a.people.length > 1 ? `Watch all ${a.people.length}` : 'Watch', onclick: () => watchAll(a.people.map((p) => p.login), a.area) }),
+          h('div', { class: 'rp-a-list' }, ...a.people.sort((p, q) => q.viewers - p.viewers).map(person)),
+          h('button', { class: 'linkish small', text: '← All areas', onclick: () => { mapSel = null; render(); } }));
+      } else {
+        const located = areas.reduce((n, a) => n + a.people.length, 0);
+        side.append(h('b', { text: located ? `${located} streamers in ${areas.length} areas` : 'Reading where everyone is…' }),
+          h('div', { class: 'muted small', text: (unknown ? `${unknown} more with their HUD hidden. ` : '') + 'Click a dot to see who is there.' }));
+        const top = h('div', { class: 'npm-top' });
+        for (const a of [...areas].sort((p, q) => q.people.length - p.people.length).slice(0, 14)) {
+          top.append(h('button', { class: 'npm-row', onclick: () => { mapSel = a.area; render(); } },
+            h('span', { text: a.area }), h('b', { text: String(a.people.length) })));
+        }
+        side.append(top);
+        if (off.length) side.append(h('div', { class: 'muted small', text: 'Not on the map: ' + off.map((a) => `${a.area} (${a.people.length})`).join(', ') }));
+      }
     }
 
     // ---- Areas board: who's where, by part of the map -------------------------
