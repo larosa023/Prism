@@ -252,6 +252,28 @@ shade = np.clip((shade - shade[land].mean()) * 1.3 + 0.5, 0, 1)
 hnorm = np.clip(hm / 650, 0, 1)[..., None]
 low = np.array([30, 43, 34], float); mid = np.array([44, 52, 38], float); high = np.array([66, 62, 52], float)
 base = np.where(hnorm < 0.35, low + (mid - low) * (hnorm / 0.35), mid + (high - mid) * ((hnorm - 0.35) / 0.65))
+# Land cover by area, so the map reads at a glance: desert, forest, farmland,
+# beach, city.
+cover = {
+  'desert': (['Grand Senora Desert', 'Sandy Shores', 'Harmony', 'Redwood Lights Track', 'Davis Quartz', 'Stab City', 'Ron Alternates Wind Farm', 'Bolingbroke Penitentiary'], (1.35, 1.12, 0.78)),
+  'forest': (['Paleto Forest', 'Raton Canyon', 'Chiliad Mountain State Wilderness', 'Mount Josiah', 'Cassidy Creek', 'North Chumash', 'Tongva Valley', 'Paleto Cove', 'Braddock Pass'], (0.78, 1.08, 0.82)),
+  'farm': (['Grapeseed', 'Great Chaparral', 'Galilee'], (1.05, 1.25, 0.8)),
+  'beach': (['Vespucci Beach', 'Del Perro Beach', 'Procopio Beach', 'Chumash'], (1.45, 1.3, 1.0)),
+  'city': ([z for z in ['Pillbox Hill', 'Downtown', 'Legion Square', 'Mission Row', 'Textile City', 'Strawberry', 'Davis', 'Rancho', 'Chamberlain Hills',
+            'La Mesa', 'Mirror Park', 'East Vinewood', 'West Vinewood', 'Downtown Vinewood', 'Vinewood', 'Alta', 'Hawick', 'Burton', 'Rockford Hills',
+            'Little Seoul', 'Vespucci', 'Vespucci Canals', 'Del Perro', 'Morningwood', 'Richards Majestic', 'La Puerta', 'Banning', 'Cypress Flats',
+            'Elysian Island', 'Terminal', 'Port of South Los Santos', 'Murrieta Heights', 'El Burro Heights', 'Maze Bank Arena',
+            'Los Santos International Airport', 'Paleto Bay']], (1.08, 1.04, 1.1)),
+  'golf': (['GWC and Golfing Society'], (0.85, 1.35, 0.85)),
+}
+tint = np.ones((H, W, 3))
+for _, (names_, mult) in cover.items():
+    for nm in names_:
+        if nm in order:
+            m = owner == order.index(nm)
+            tint[m] = mult
+tint = np.stack([ndimage.gaussian_filter(tint[..., c], 4) for c in range(3)], axis=-1)
+base = base * tint
 col = np.clip(base * (0.55 + 0.9 * shade[..., None]), 0, 255)
 from PIL import Image
 rgba = np.zeros((H, W, 4), np.uint8)
@@ -259,7 +281,18 @@ rgba[..., :3] = col.astype(np.uint8)
 rgba[..., 3] = (ndimage.gaussian_filter(land.astype(float), 1) * 255).astype(np.uint8)
 Image.fromarray(rgba).save(shade_png, 'WEBP', quality=82, method=6)
 
-data = {'land': land_path, 'zones': zones, 'roads': roads_out, 'streets': streets, 'pois': pois, 'rails': rails_path,
+# Height lines every 50 m (worked out from road heights, so approximate)
+contours = []
+hm_land = np.where(land, hm, np.nan)
+for lev in range(50, 800, 50):
+    for c in measure.find_contours(np.nan_to_num(hm_land, nan=-50), lev):
+        if len(c) < 25: continue
+        c = measure.approximate_polygon(c, 1.2)
+        pts = to_world(c)
+        contours.append(('M' + ' '.join(f'{x},{-y}' for x, y in pts), lev))
+contour_minor = ''.join(p_ for p_, lev in contours if lev % 200)
+contour_major = ''.join(p_ for p_, lev in contours if lev % 200 == 0)
+data = {'land': land_path, 'zones': zones, 'roads': roads_out, 'streets': streets, 'pois': pois, 'rails': rails_path, 'contours': [contour_minor, contour_major],
         'bounds': [X0, Y0, X1, Y1]}
 _j.dump({'streets': sorted(street_zone.keys()), 'streetZone': street_zone}, open(streets_json, 'w'), separators=(',', ':'))
 js = '// Generated from GTA V game data (zone bounds and the road network), see\n// scripts/README. Coordinates are game-world metres; y is flipped (north up).\nwindow.NP_MAP_DATA = ' + json.dumps(data, separators=(',', ':')) + ';\n'

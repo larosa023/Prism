@@ -1169,6 +1169,90 @@
   let sugTimer = null;
   let sugSeq = 0;
   let followingCache = [];
+  let npLiveList = () => [];
+  let npLocOf = () => null;
+
+  // ---- Quick search (Ctrl + K): jump anywhere, add anyone ------------------
+  const Palette = (() => {
+    const box = h('div', { class: 'pal', hidden: true });
+    const input = h('input', { class: 'pal-in', placeholder: 'Search streams, follows, NoPixel, pages and actions…', spellcheck: false });
+    const list = h('div', { class: 'pal-list' });
+    box.append(h('div', { class: 'pal-card' }, input, list, h('div', { class: 'pal-foot', text: '↑ ↓ to move · Enter to pick · Esc to close' })));
+    document.body.append(box);
+    let items = [], pick = 0;
+    const has = (login) => streams.some((x) => x.platform === 'twitch' && x.id.toLowerCase() === login.toLowerCase());
+    const addTwitch = (login, name) => { addStream({ platform: 'twitch', id: login.toLowerCase(), label: name || login }); showView('multiview'); };
+    function all(q) {
+      const out = [];
+      const views = [['multiview', 'Multi-view'], ['twitch', 'Twitch'], ['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['rp', 'NoPixel'], ['settings', 'Settings']];
+      if (S.showKick) views.push(['kick', 'Kick']);
+      for (const [v, n] of views) out.push({ kind: 'Go to', text: n, run: () => showView(v) });
+      out.push({ kind: 'Action', text: 'Theater mode', hint: 'T', run: () => setTheater(true) });
+      out.push({ kind: 'Action', text: 'Mixer', run: () => { showView('multiview'); setTimeout(() => $('#mixer-btn').click(), 50); } });
+      out.push({ kind: 'Action', text: "What's new", run: () => openNews() });
+      out.push({ kind: 'Action', text: 'Check for updates', run: () => { prism.updater.check(); toast('Checking for updates…'); } });
+      out.push({ kind: 'Action', text: 'NoPixel map', run: () => { showView('rp'); setTimeout(() => $('#rp-view button[data-v=map]')?.click(), 50); } });
+      for (const x of stageStreams()) {
+        const name = x.label || x.id;
+        out.push({ kind: 'In multi-view', text: name, sub: 'Give it the sound', run: () => { showView('multiview'); soloSound(keyOf(x)); for (const t of tiles.values()) applyMute(t); toast('Sound: ' + name); } });
+        if (x.platform === 'twitch') out.push({ kind: 'In multi-view', text: name + ': past broadcasts & clips', run: () => openVodBrowser(x.id) });
+      }
+      for (const c of followingCache) {
+        if (has(c.login)) continue;
+        out.push({ kind: 'Live · following', text: c.name || c.login, sub: [c.game, c.viewers ? fmtViewers(c.viewers) + ' watching' : ''].filter(Boolean).join(' · '), run: () => addTwitch(c.login, c.name) });
+      }
+      for (const x of npLiveList()) {
+        if (has(x.login)) continue;
+        const loc = npLocOf(x.login);
+        out.push({ kind: 'Live · NoPixel', text: x.name, sub: [loc?.area, x.title].filter(Boolean).join(' · ').slice(0, 90), run: () => addTwitch(x.login, x.name) });
+      }
+      if (q) {
+        const parsed = window.parseStream ? window.parseStream(q) : null;
+        if (/^[a-z0-9_]{3,25}$/i.test(q) && !has(q)) out.push({ kind: 'Add', text: `Add ${q} to multi-view`, run: () => addTwitch(q) });
+        else if (parsed) out.push({ kind: 'Add', text: 'Add this link', run: () => { addStream(parsed); showView('multiview'); } });
+      }
+      return out;
+    }
+    function score(it, q) {
+      if (!q) return 1;
+      const t = (it.text + ' ' + (it.sub || '') + ' ' + it.kind).toLowerCase();
+      const i = t.indexOf(q);
+      if (i === 0) return 3;
+      if (i > 0) return t[i - 1] === ' ' ? 2.5 : 2;
+      // letters in order ("kcn" finds "kaicenat")
+      let j = 0; for (const ch of t) if (ch === q[j]) j++;
+      return j === q.length ? 1 : 0;
+    }
+    function paint() {
+      const q = input.value.trim().toLowerCase();
+      items = all(q).map((it) => ({ it, sc: score(it, q) })).filter((x) => x.sc > 0 || x.it.kind === 'Add')
+        .sort((a, b) => (a.it.kind === 'Add') - (b.it.kind === 'Add') || b.sc - a.sc).slice(0, 40).map((x) => x.it);
+      if (!q) items = items.filter((it) => it.kind !== 'Add');
+      pick = Math.min(pick, Math.max(0, items.length - 1));
+      list.textContent = '';
+      items.forEach((it, i) => list.append(h('button', { class: 'pal-it' + (i === pick ? ' on' : ''), onmousemove: () => { if (pick !== i) { pick = i; paint(); } }, onclick: () => run(i) },
+        h('span', { class: 'pal-kind', text: it.kind }), h('span', { class: 'pal-text' }, h('b', { text: it.text }), it.sub ? h('small', { text: it.sub }) : null),
+        it.hint ? h('kbd', { text: it.hint }) : null)));
+      if (!items.length) list.append(h('div', { class: 'pal-none', text: 'Nothing matches.' }));
+      list.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+    }
+    function run(i) { const it = items[i]; close(); it?.run(); }
+    function open() { box.hidden = false; input.value = ''; pick = 0; paint(); input.focus(); }
+    function close() { box.hidden = true; }
+    input.addEventListener('input', () => { pick = 0; paint(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { pick = Math.min(items.length - 1, pick + 1); paint(); e.preventDefault(); }
+      else if (e.key === 'ArrowUp') { pick = Math.max(0, pick - 1); paint(); e.preventDefault(); }
+      else if (e.key === 'Enter') run(pick);
+      else if (e.key === 'Escape') close();
+      e.stopPropagation();
+    });
+    box.addEventListener('mousedown', (e) => { if (e.target === box) close(); });
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); box.hidden ? open() : close(); }
+    });
+    return { open };
+  })();
   const searchCache = new Map();
 
   const fmtViewers = (n) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K' : String(n));
@@ -2337,6 +2421,8 @@
     let scan = { scanned: 0, partial: false, sources: null }, scanning = 0; // last full search, and progress of the current one
     let locStatus = null; // area reading progress
     let view = 'streamers';
+    npLiveList = () => live;
+    npLocOf = (l) => locations.get(l);
     const locations = new Map(); // login -> { area, region, at, stale }
     const NP = /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i;
     const REGION_ORDER = ['Los Santos', 'Vinewood Hills & west coast', 'Blaine County', 'Paleto & north', 'At sea'];
@@ -2478,7 +2564,7 @@
 
     // ---- Live cards ----------------------------------------------------------
     function liveCard(x, followed, added, bust) {
-      const card = h('div', { class: 'rp-card' + (added ? ' added' : ''), title: x.title },
+      const card = h('div', { class: 'rp-card' + (added ? ' added' : ''), title: x.title, 'data-login': x.login },
         h('div', { class: 'rp-thumb' },
           h('img', { src: `https://static-cdn.jtvnw.net/previews-ttv/live_user_${x.login}-440x248.jpg?t=${bust}`, alt: '', loading: 'lazy' }),
           h('span', { class: 'rp-live', text: fmtViewers(x.viewers) }),
@@ -2489,7 +2575,7 @@
           h('div', { class: 'rp-text' },
             h('div', { class: 'rp-who' }, h('b', { text: x.name }), followed ? h('span', { class: 'rp-fol', text: 'Following' }) : null),
             x.char ? h('div', { class: 'rp-char', text: 'as ' + x.char }) : null,
-            areaChip(x.login),
+            h('span', { class: 'rp-locslot' }, areaChip(x.login)),
             h('div', { class: 'rp-t', text: x.title })),
           h('button', { class: 'icon-btn rp-more', title: 'Groups and more', text: '⋯', onclick: (e) => openMenu(e, x) })));
       card.addEventListener('click', (e) => {
@@ -2712,8 +2798,17 @@
       locations.set(d.login, d);
       if (typeof paintAllTileInfo === 'function') paintAllTileInfo();
       if (currentView !== 'rp') return;
+      // Streamers view: just update that card's area (rebuilding the whole
+      // list for every area read made the tab stutter). Scenes catch up a bit later.
+      if (view === 'streamers') {
+        const slot = document.querySelector(`#rp-body .rp-card[data-login="${CSS.escape(d.login)}"] .rp-locslot`);
+        if (slot) { slot.textContent = ''; const c = areaChip(d.login); if (c) slot.append(c); }
+        clearTimeout(renderTimer);
+        renderTimer = setTimeout(render, 6000);
+        return;
+      }
       clearTimeout(renderTimer);
-      renderTimer = setTimeout(render, 400);
+      renderTimer = setTimeout(render, view === 'map' ? 1200 : 800);
     });
 
     // Keep reading areas in the background (for scene chips in multi-view),

@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.11.0',
+    date: 'Nov 10, 2026',
+    items: [
+      'Quick search: press Ctrl + K anywhere to jump to a page, give a stream the sound, open past broadcasts, or add any live follow or live NoPixel streamer (with their area) to multi-view. Type a channel name to add it.',
+      'NoPixel map: a Find box (find a streamer, street, place or area and the map glides there), height lines on the hills, land colored by what it is (desert, forest, farmland, beach, city), and street and place names showing earlier as you zoom in.',
+      'Smoother NoPixel tab: when an area is read, only that streamer\'s card updates instead of the whole list being rebuilt, which removes most of the stutter while areas load.',
+      'Lighter pages: cards, chat messages and lists that are off screen aren\'t drawn until you scroll to them.'
+    ]
+  },
+  {
     version: '0.10.3',
     date: 'Nov 10, 2026',
     items: [

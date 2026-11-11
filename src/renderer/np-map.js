@@ -52,7 +52,8 @@
           land: new Path2D(data.land),
           zones: data.zones.filter((z) => !z.water).map((z) => ({ z, path: new Path2D(z.path), fill: REGION_FILL[regionOf(z.name)] })),
           freeway: new Path2D(data.roads.freeway), major: new Path2D(data.roads.major),
-          minor: new Path2D(data.roads.minor), dirt: new Path2D(data.roads.dirt), rails: new Path2D(data.rails)
+          minor: new Path2D(data.roads.minor), dirt: new Path2D(data.roads.dirt), rails: new Path2D(data.rails),
+          contour: new Path2D(data.contours?.[0] || ''), contourMajor: new Path2D(data.contours?.[1] || '')
         };
         relief = new Image();
         relief.src = 'np-map-shade.webp';
@@ -116,6 +117,48 @@
       btn('Blaine County', 'Sandy Shores, Grapeseed and around', () => this.fit(-500, 2300, 3700, 5300));
       btn('Paleto', 'Paleto Bay', () => this.fit(-1200, 5600, 1000, 7000));
       btn('Whole map', 'Show everything', () => this.fitAll());
+      // Find a streamer or place on the map
+      const find = document.createElement('input');
+      find.className = 'npm-find'; find.placeholder = 'Find a streamer, street or place…'; find.spellcheck = false;
+      const results = document.createElement('div');
+      results.className = 'npm-results'; results.hidden = true;
+      const go = (r) => { results.hidden = true; find.value = ''; find.blur(); this.flyTo(r.x, r.y, r.area, r.zoom); };
+      const search = () => {
+        const q = find.value.trim().toLowerCase();
+        results.textContent = '';
+        if (q.length < 2) { results.hidden = true; return; }
+        const out = [];
+        for (const g of this.groups) for (const p of g.people) {
+          if ((p.name + ' ' + p.login + ' ' + (p.char || '')).toLowerCase().includes(q)) {
+            const pos = place(g.area, g.street);
+            if (pos) out.push({ label: p.name + (p.char ? ' · ' + p.char : ''), sub: (g.street ? g.street + ', ' : '') + g.area, x: pos[0], y: pos[1], area: g.area });
+          }
+        }
+        for (const st of data?.streets || []) if (st.n.toLowerCase().includes(q) && st.a[0]) out.push({ label: st.n, sub: 'Street', x: st.a[0][0], y: -st.a[0][1], zoom: 0.7 });
+        for (const p of data?.pois || []) if (p[1].toLowerCase().includes(q)) out.push({ label: p[1], sub: (POI_NAMES[p[0]] || 'Place'), x: p[2], y: p[3], zoom: 0.7 });
+        for (const z of data?.zones || []) if (z.name.toLowerCase().includes(q)) out.push({ label: z.name, sub: 'Area', x: z.x, y: z.y, zoom: 0.35 });
+        for (const r of out.slice(0, 12)) {
+          const b = document.createElement('button');
+          b.innerHTML = '<b></b><span></span>';
+          b.firstChild.textContent = r.label; b.lastChild.textContent = r.sub;
+          b.onclick = () => go(r);
+          results.append(b);
+        }
+        if (!out.length) { const e = document.createElement('div'); e.className = 'npm-none'; e.textContent = 'Nothing found'; results.append(e); }
+        results.hidden = false;
+        this.firstResult = out[0];
+      };
+      find.addEventListener('input', search);
+      find.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && this.firstResult) go(this.firstResult);
+        if (e.key === 'Escape') { find.value = ''; results.hidden = true; find.blur(); }
+        e.stopPropagation();
+      });
+      find.addEventListener('blur', () => setTimeout(() => { results.hidden = true; }, 150));
+      const findWrap = document.createElement('div');
+      findWrap.className = 'npm-findwrap';
+      findWrap.append(find, results);
+      bar.append(findWrap);
       const placesBtn = btn('Places ▾', 'Choose which places show', () => { menu.hidden = !menu.hidden; });
       placesBtn.classList.add('npm-places-btn');
       const menu = document.createElement('div');
@@ -160,6 +203,21 @@
       this.s = Math.min(this.w / (x1 - x0), this.h / (y1 - y0)) * 0.92;
       this.cx = (x0 + x1) / 2; this.cy = -(y0 + y1) / 2;
       this.draw();
+    }
+    // Smoothly move to a spot (and pick its area, if streamers are there).
+    flyTo(x, y, area, zoom) {
+      const from = { cx: this.cx, cy: this.cy, s: this.s };
+      const to = { cx: x, cy: -y, s: Math.max(this.s, zoom || 0.5) };
+      const t0 = performance.now(), dur = 450;
+      const step = (t) => {
+        const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+        this.cx = from.cx + (to.cx - from.cx) * e; this.cy = from.cy + (to.cy - from.cy) * e;
+        this.s = Math.exp(Math.log(from.s) + (Math.log(to.s) - Math.log(from.s)) * e);
+        this.paint();
+        if (k < 1) requestAnimationFrame(step);
+        else if (area) this.onSelect(area);
+      };
+      requestAnimationFrame(step);
     }
     fitAll() { this.fit(-3600, -3900, 4100, 7300); }
     toMap(px, py) { return [(px - this.w / 2) / this.s + this.cx, (py - this.h / 2) / this.s + this.cy]; }
@@ -259,7 +317,7 @@
         d.title = `${g.street ? g.street + ', ' : ''}${g.area}\n${g.people.map((x) => x.name + (x.char ? ' (' + x.char + ')' : '')).join('\n')}`;
         d.onclick = (e) => { e.stopPropagation(); this.onSelect(g.area); };
         this.dotsEl.append(d);
-        this.dots.push({ d, x: pos[0], y: -pos[1] });
+        this.dots.push({ d, x: pos[0], y: -pos[1], size });
       }
     }
 
@@ -288,6 +346,13 @@
       } else { ctx.fillStyle = '#1e2a22'; ctx.fill(P.land); }
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.strokeStyle = 'rgba(120,170,150,.45)'; ctx.lineWidth = 1.2 * px; ctx.stroke(P.land);
+
+      // Height lines (every 50 m, thicker every 200 m)
+      if (s >= 0.1) {
+        const a = Math.min(1, (s - 0.1) / 0.15);
+        ctx.strokeStyle = `rgba(230,220,180,${0.10 * a})`; ctx.lineWidth = 0.8 * px; ctx.stroke(P.contour);
+        ctx.strokeStyle = `rgba(230,220,180,${0.2 * a})`; ctx.lineWidth = 1.1 * px; ctx.stroke(P.contourMajor);
+      }
 
       // Areas
       const sel = this.selected && zoneFor(this.selected);
@@ -328,7 +393,7 @@
         taken.push([x0, y0, x1, y1]);
         return true;
       };
-      for (const d of this.dots || []) { const [x, y] = this.toScreen(d.x, d.y); taken.push([x - 16, y - 16, x + 16, y + 16]); }
+      for (const d of this.dots || []) { const [x, y] = this.toScreen(d.x, d.y); const r = d.size / 2 + 2; taken.push([x - r, y - r, x + r, y + r]); }
 
       // Places: small colored dots when zoomed out, badges closer in
       if (s < 0.33) {
@@ -353,7 +418,7 @@
           ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.stroke();
           ctx.fillStyle = '#fff'; ctx.fillText(glyph, x, y + 0.5);
           taken.push([x - 9, y - 9, x + 9, y + 9]);
-          if (s >= 0.9) {
+          if (s >= 0.6) {
             ctx.font = '600 10.5px "Segoe UI", sans-serif';
             const w = ctx.measureText(p[1]).width;
             if (free(x + 10, y - 7, x + 14 + w, y + 7)) {
@@ -406,8 +471,8 @@
       }
 
       // Street names along the streets
-      if (s >= 0.55) {
-        ctx.font = `600 ${s >= 1.2 ? 11.5 : 10.5}px "Segoe UI", sans-serif`;
+      if (s >= 0.32) {
+        ctx.font = `600 ${s >= 0.8 ? 11.5 : s >= 0.5 ? 10.5 : 9.5}px "Segoe UI", sans-serif`;
         for (const st of data.streets) {
           for (const a of st.a) {
             if (!vis(a[0], a[1], 200)) continue;
