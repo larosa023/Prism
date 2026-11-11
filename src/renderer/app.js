@@ -80,6 +80,7 @@
     if (prev === 'twitch') refreshChatAuth(); // you may have just signed in
     if (name === 'multiview') requestAnimationFrame(layout);
     backgroundMultiview(name !== 'multiview');
+    if (name !== 'rp') npCloseCard();
     save({ lastView: name === 'settings' ? S.lastView : name });
   }
   $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
@@ -1171,6 +1172,7 @@
   let followingCache = [];
   let npLiveList = () => [];
   let npLocOf = () => null;
+  let npCloseCard = () => {};
 
   // ---- Quick search (Ctrl + K): jump anywhere, add anyone ------------------
   const Palette = (() => {
@@ -2640,6 +2642,7 @@
       const L = sorted(live.map((x) => ({ ...x, char: character(x.title, x.login) })).filter((x) => matches(x, q) && (!onlyFollowing || followed.has(x.login))));
       const bust = Math.floor(Date.now() / 120000);
 
+      if (view !== 'map') closeMapCard();
       if (view === 'areas') {
         renderAreas(body, L, added);
       } else if (view === 'map') {
@@ -2678,52 +2681,182 @@
 
     // ---- Live map: a dot for each area with streamers in it ------------------
     let mapSel = null;
+    // ---- Groups: police, EMS, legal, mechanics, crews (from titles) ------------
+    const ROLE_RULES = [
+      ['police', 'Police', '#3b82f6', /\b(pd|lspd|bcso|sast|sasp|sheriff|deputy|trooper|officer|cop|cadet|sergeant|sgt|lieutenant|lt\.?|captain|chief|ranger|detective|police|corrections|doc)\b/i],
+      ['ems', 'EMS & doctors', '#ef4444', /\b(ems|paramedic|doctor|dr\.|nurse|medic|surgeon|pillbox|hospital|fire ?fighter|lsfd)\b/i],
+      ['legal', 'Lawyers & city', '#a78bfa', /\b(lawyer|attorney|judge|doj|da|prosecutor|mayor|council|city hall|public defender)\b/i],
+      ['mech', 'Mechanics & tow', '#f59e0b', /\b(mechanic|mech|tow|tuner|bennys|benny's|hayes)\b/i],
+      ['biz', 'Business & jobs', '#14b8a6', /\b(business|owner|ceo|taxi|uber|news|reporter|weazel|burger|uwu|cafe|restaurant|realtor|real estate|dealer(ship)?|bank(er)?|delivery|trucker|fisher(man)?|miner|hunter)\b/i]
+    ];
+    // Words that mark a title part as stream info rather than a crew name.
+    const STOP = new Set(['nopixel', 'pixel', 'np', 'npv', 'wl', 'whitelist', 'public', 'green', 'purple', 'discord', 'multi', 'multistream', 'socials', 'social',
+      'sub', 'subs', 'subathon', 'goal', 'drops', 'giveaway', 'day', 'days', 'part', 'ep', 'episode', 'stream', 'streams', 'live', 'v', 'rp', 'gta', 'gtarp', 'roleplay',
+      'pov', 'english', 'español', 'espanol', 'new', 'first', 'last', 'hours', 'hrs', 'ad', 'sponsored', 'merch', 'code', 'prime', 'youtube', 'tiktok', 'twitter', 'insta',
+      'later', 'today', 'tonight', 'chill', 'vibes', 'music', 'server', 'city', 'grind', 'grinding', 'cops', 'crime', 'criminal', 'funny', 'variety', 'minecraft']);
+    const CREW_COLORS = ['#22c55e', '#e879f9', '#f97316', '#06b6d4', '#facc15', '#fb7185', '#84cc16', '#c084fc', '#2dd4bf', '#fda4af'];
+    const GENERIC = /^(nopixel|no pixel|npv|np|nopixel ?v|nopixel ?5(\.0)?|nopixel ?wl|wl|gta|gta ?v|gta ?rp|gtarp|rp|pov|live|english|day \d+|subathon.*|.*!\w+.*|\d+|ad|sponsored|music|new|chill|chilling|stream|streaming|grinding|grind|vibes)$/i;
+    // Crews: a name in two or more streamers' titles ("THE COLLECTIVE", "Kings of Paleto").
+    function findCrews(list) {
+      const count = new Map();
+      for (const x of list) {
+        const seen = new Set();
+        for (let part of String(x.title || '').split(/[|•·\-–—\/\\[\](){}:+,~]+/)) {
+          part = part.replace(/[^\p{L}\p{N}' &]/gu, ' ').replace(/\s+/g, ' ').trim();
+          if (part.length < 3 || part.length > 28 || part.split(' ').length > 4 || GENERIC.test(part)) continue;
+          if (part.toLowerCase().split(' ').some((w) => STOP.has(w)) || !/\p{L}{3}/u.test(part)) continue;
+          if (x.char && part.toLowerCase() === x.char.toLowerCase()) continue;
+          if (part.toLowerCase() === x.login || part.toLowerCase() === String(x.name).toLowerCase()) continue;
+          if (ROLE_RULES.some((r) => r[3].test(part) && part.split(' ').length <= 2)) continue;
+          const k = part.toLowerCase();
+          if (seen.has(k)) continue;
+          seen.add(k);
+          const c = count.get(k) || { label: part, n: 0, logins: [] };
+          c.n++; c.logins.push(x.login);
+          count.set(k, c);
+        }
+      }
+      return [...count.values()].filter((c) => c.n >= 2).sort((a, b) => b.n - a.n).slice(0, CREW_COLORS.length)
+        .map((c, i) => ({ key: 'crew:' + c.label.toLowerCase(), label: c.label, color: CREW_COLORS[i], logins: new Set(c.logins) }));
+    }
+    function groupOf(x, crews) {
+      for (const g of groups()) if (g.members.includes(x.login)) return { key: 'mine:' + g.id, label: g.name, color: '#ffffff' };
+      for (const c of crews) if (c.logins.has(x.login)) return c;
+      const text = x.title + ' ' + (x.char || '');
+      for (const [key, label, color, rx] of ROLE_RULES) if (rx.test(text)) return { key, label, color };
+      return { key: 'civ', label: 'Everyone else', color: '#9ca3af' };
+    }
+    let mapGroupFilter = null; // only show one group
+    let mapPopup = null;       // { login, player }
+
+    // ---- Live map: pictures for streamers, a live list beside it -------------
     function renderMap(body, L, added) {
+      const crews = findCrews(live);
+      const tagged = L.map((x) => { const g = groupOf(x, crews); return { ...x, group: g, color: g.color }; });
+      const byGroup = new Map();
+      for (const x of tagged) { const k = x.group.key; if (!byGroup.has(k)) byGroup.set(k, { ...x.group, n: 0 }); byGroup.get(k).n++; }
+      const shownList = tagged.filter((x) => !mapGroupFilter || x.group.key === mapGroupFilter);
+
       const byArea = new Map();
-      const spots = new Map(); // area + street -> people (one dot each)
-      let unknown = 0;
-      for (const x of L) {
+      const spots = new Map(); // area + street -> people (one marker each)
+      const hidden = [];
+      for (const x of shownList) {
         const l = locations.get(x.login);
-        if (!l?.area) { unknown++; continue; }
+        if (!l?.area) { hidden.push(x); continue; }
         if (!byArea.has(l.area)) byArea.set(l.area, { area: l.area, region: l.region, people: [] });
         byArea.get(l.area).people.push(x);
         const k = l.area + '|' + (l.street || '');
         if (!spots.has(k)) spots.set(k, { area: l.area, street: l.street || null, people: [] });
         spots.get(k).people.push(x);
       }
-      const areas = [...byArea.values()];
       if (mapSel && !byArea.has(mapSel)) mapSel = null;
+
+      // Group legend: click one to show only that group.
+      const legend = h('div', { class: 'npm-legend' });
+      const chip = (k, label, color, n) => legend.append(h('button', { class: 'npm-chip' + (mapGroupFilter === k ? ' on' : ''), title: mapGroupFilter === k ? 'Show everyone' : 'Show only ' + label,
+        onclick: () => { mapGroupFilter = mapGroupFilter === k ? null : k; render(); } }, h('i', { style: `background:${color}` }), label, h('b', { text: String(n) })));
+      for (const g of [...byGroup.values()].sort((a, b) => (a.key === 'civ') - (b.key === 'civ') || b.n - a.n)) chip(g.key, g.label, g.color, g.n);
+
       const host = h('div', { class: 'npm-host' });
       const side = h('div', { class: 'npm-side' });
       const wrap = h('div', { class: 'npm' }, host, side);
-      body.append(h('div', { class: 'rp-locstatus', id: 'rp-locstatus', text: locText() }), wrap);
-      const drawn = window.NPMap.draw(host, [...spots.values()], { selected: mapSel, onSelect: (a) => { mapSel = a; render(); } });
+      body.append(h('div', { class: 'npm-top-row' }, legend, h('div', { class: 'rp-locstatus', id: 'rp-locstatus', text: locText() })), wrap);
 
-      const person = (x) => h('div', { class: 'rp-a-who' + (added.has(x.login) ? ' added' : ''), title: x.title, onclick: () => {
-        if (!added.has(x.login)) { addStream({ platform: 'twitch', id: x.login, label: x.name }); toast(`Added ${x.name} to multi-view.`); render(); }
-      } }, x.avatar ? h('img', { src: x.avatar, alt: '' }) : h('span', { class: 'ph' }),
-        h('span', { class: 'n', text: x.name }), x.char ? h('span', { class: 'c', text: x.char }) : null,
-        h('span', { class: 'v', text: locations.get(x.login)?.street || fmtViewers(x.viewers) }));
-      if (mapSel) {
-        const a = byArea.get(mapSel);
-        side.append(h('div', { class: 'rp-a-top' }, h('b', { text: a.area }), h('span', { class: 'muted small', text: `${a.people.length} here` })),
-          h('div', { class: 'muted small', text: a.region }),
-          h('button', { class: 'btn btn-accent npm-watch', text: a.people.length > 1 ? `Watch all ${a.people.length}` : 'Watch', onclick: () => watchAll(a.people.map((p) => p.login), a.area) }),
-          h('div', { class: 'rp-a-list' }, ...a.people.sort((p, q) => q.viewers - p.viewers).map(person)),
-          h('button', { class: 'linkish small', text: '← All areas', onclick: () => { mapSel = null; render(); } }));
-      } else {
-        const located = areas.reduce((n, a) => n + a.people.length, 0);
-        side.append(h('b', { text: located ? `${located} streamers in ${areas.length} areas` : 'Reading where everyone is…' }),
-          h('div', { class: 'muted small', text: (unknown ? `${unknown} more with their HUD hidden. ` : '') + 'Click a dot or an area to see who is there. Streamers whose street could be read sit on that street.' }));
-        const top = h('div', { class: 'npm-top' });
-        for (const a of [...areas].sort((p, q) => q.people.length - p.people.length).slice(0, 16)) {
-          top.append(h('button', { class: 'npm-row', onclick: () => { mapSel = a.area; render(); } },
-            h('span', { text: a.area }), h('b', { text: String(a.people.length) })));
-        }
-        side.append(top);
-        drawn.then((off) => { if (off.length) side.append(h('div', { class: 'muted small', text: 'Not on the map: ' + off.map((a) => `${a.area} (${a.people.length})`).join(', ') })); });
-      }
+      const listRows = new Map();
+      const hoverRows = (logins, on) => { for (const l of logins) listRows.get(l)?.classList.toggle('hl', on); };
+      const drawn = window.NPMap.draw(host, [...spots.values()], {
+        selected: mapSel,
+        onSelect: (a) => { mapSel = a; render(); },
+        onPick: (spot, person, pos) => openMapCard(person, pos, spot),
+        onHover: hoverRows
+      });
+
+      // The live list: everyone shown, those on the map first.
+      const where = (x) => { const l = locations.get(x.login); return l?.area ? (l.street ? l.street + ', ' : '') + l.area : 'HUD hidden'; };
+      const row = (x) => {
+        const r = h('div', { class: 'npm-li' + (added.has(x.login) ? ' added' : '') + (mapPopup?.login === x.login ? ' on' : ''), title: x.title, 'data-login': x.login,
+          onmouseenter: () => window.NPMap.view()?.highlight([x.login], true), onmouseleave: () => window.NPMap.view()?.highlight([x.login], false),
+          onclick: () => {
+            const v = window.NPMap.view(); const f = v?.find(x.login);
+            if (f?.pos) { v.noSelectOnFly = true; v.flyTo(f.pos[0], f.pos[1], null, Math.max(v.s, 0.45)); setTimeout(() => { v.noSelectOnFly = false; openMapCard(x, f.pos); }, 470); }
+            else openMapCard(x, null);
+          } },
+          h('div', { class: 'npm-li-th' }, h('img', { src: `https://static-cdn.jtvnw.net/previews-ttv/live_user_${x.login}-160x90.jpg?t=${Math.floor(fetchedAt / 120000)}`, alt: '', loading: 'lazy' }),
+            h('span', { class: 'npm-li-v', text: fmtViewers(x.viewers) })),
+          h('div', { class: 'npm-li-tx' },
+            h('div', { class: 'npm-li-n' }, h('i', { class: 'npm-li-dot', style: `background:${x.color}` }), h('b', { text: x.name }), x.char ? h('span', { text: x.char }) : null),
+            h('div', { class: 'npm-li-w', text: where(x) })));
+        listRows.set(x.login, r);
+        return r;
+      };
+      const onMap = shownList.filter((x) => locations.get(x.login)?.area).filter((x) => !mapSel || locations.get(x.login).area === mapSel);
+      const head = h('div', { class: 'npm-side-head' },
+        mapSel ? h('b', { text: mapSel }) : h('b', { text: `${shownList.length} live${mapGroupFilter ? ' · ' + (byGroup.get(mapGroupFilter)?.label || '') : ''}` }),
+        mapSel ? h('button', { class: 'linkish small', text: 'All areas', onclick: () => { mapSel = null; render(); } }) : h('span', { class: 'muted small', text: `${shownList.length - hidden.length} on the map` }));
+      side.append(head);
+      if (mapSel && onMap.length) side.append(h('button', { class: 'btn btn-accent npm-watch', text: onMap.length > 1 ? `Watch all ${onMap.length} here` : 'Watch', onclick: () => watchAll(onMap.map((p) => p.login), mapSel) }));
+      const list = h('div', { class: 'npm-list' }, ...onMap.sort((a, b) => b.viewers - a.viewers).map(row));
+      if (!mapSel && hidden.length) list.append(h('div', { class: 'npm-sub', text: `HUD hidden right now (${hidden.length})` }), ...hidden.sort((a, b) => b.viewers - a.viewers).map(row));
+      if (!list.childElementCount) list.append(h('div', { class: 'muted small', text: 'Reading where everyone is…' }));
+      side.append(list);
+      drawn.then((off) => { if (off.length && !mapSel) side.append(h('div', { class: 'muted small npm-off', text: 'Not on the map: ' + off.map((a) => `${a.area} (${a.people.length})`).join(', ') })); });
     }
+
+    // ---- The watch card: a small live player pinned to the streamer's spot ------
+    function closeMapCard() {
+      if (!mapPopup) return;
+      mapPopup.player?.destroy();
+      mapPopup.el.remove();
+      window.NPMap.view()?.setPopup(null);
+      document.querySelectorAll('.npm-li.on').forEach((r) => r.classList.remove('on'));
+      mapPopup = null;
+    }
+    function openMapCard(x, pos, spot) {
+      if (mapPopup?.login === x.login) return;
+      closeMapCard();
+      const inMv = streams.some((y) => y.platform === 'twitch' && y.id === x.login);
+      const status = h('div', { class: 'npm-card-st', text: 'Loading…' });
+      const video = h('div', { class: 'npm-card-vid' }, status);
+      const soundBtn = h('button', { class: 'btn', text: '🔇 Sound', title: 'Turn the sound on or off' });
+      const others = spot && spot.people.length > 1 ? h('div', { class: 'npm-card-others' }, 'Also here: ',
+        ...spot.people.filter((p) => p.login !== x.login).slice(0, 8).map((p) => h('button', { class: 'linkish', text: p.name, onclick: () => openMapCard(p, pos, spot) }))) : null;
+      const l = locations.get(x.login);
+      const el = h('div', { class: 'npm-card' },
+        h('div', { class: 'npm-card-head' },
+          x.avatar ? h('img', { src: x.avatar, alt: '' }) : null,
+          h('div', { class: 'npm-card-who' }, h('b', { text: x.name }), h('span', { text: [x.char, fmtViewers(x.viewers) + ' watching'].filter(Boolean).join(' · ') })),
+          h('button', { class: 'npm-card-x', title: 'Close', text: '✕', onclick: closeMapCard })),
+        video,
+        h('div', { class: 'npm-card-title', text: x.title }),
+        l?.area ? h('div', { class: 'npm-card-where', text: '📍 ' + (l.street ? l.street + ', ' : '') + l.area + (x.group ? ' · ' + x.group.label : '') }) : null,
+        others,
+        h('div', { class: 'npm-card-actions' },
+          h('button', { class: 'btn btn-accent', text: inMv ? '✓ In multi-view' : '+ Multi-view', disabled: inMv, onclick: (e) => { addStream({ platform: 'twitch', id: x.login, label: x.name }); e.target.textContent = '✓ In multi-view'; e.target.disabled = true; toast(`Added ${x.name} to multi-view.`); } }),
+          soundBtn,
+          h('button', { class: 'btn', text: 'Open on Twitch', onclick: () => prism.openExternal('https://www.twitch.tv/' + x.login) })));
+      const player = window.NativeTwitchPlayer ? new NativeTwitchPlayer(x.login, {
+        onStatus: (m) => { status.textContent = m; status.hidden = !m; },
+        onFatal: (m) => { status.textContent = "Couldn't play: " + m; status.hidden = false; },
+        rewindSeconds: 0
+      }) : null;
+      if (player) {
+        player.video.className = 'npm-card-video';
+        video.prepend(player.video);
+        player.setQuality('360');
+        player.setMuted(true);
+        player.start();
+        soundBtn.onclick = () => { const m = !player.video.muted; player.setMuted(m); if (!m) player.setVolume(0.6); soundBtn.textContent = m ? '🔇 Sound' : '🔊 Sound on'; };
+      }
+      mapPopup = { login: x.login, player, el };
+      listRowsOn(x.login);
+      const v = window.NPMap.view();
+      if (pos && v) v.setPopup(el, pos);
+      else { el.classList.add('npm-card-free'); document.querySelector('.npm-host .npm-map')?.append(el); }
+    }
+    const listRowsOn = (login) => document.querySelectorAll('.npm-li').forEach((r) => r.classList.toggle('on', r.dataset.login === login));
+    npCloseCard = closeMapCard;
+    // close the card when leaving the map
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mapPopup) closeMapCard(); });
 
     // ---- Areas board: who's where, by part of the map -------------------------
     function renderAreas(body, L, added) {

@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.13.0',
+    date: 'Nov 11, 2026',
+    items: [
+      'NoPixel map: streamers show as their Twitch pictures on the map (up to three stacked when they\'re in the same spot, with a count), ringed in their group\'s color.',
+      'A live list beside the map: everyone live with a preview, character and street, busiest first. Hover a row to light them up on the map, or a picture to find them in the list.',
+      'Click a streamer (on the map or in the list) to open a small live player right there, muted to start: turn the sound on, add them to multi-view, or see who else is in the same spot.',
+      'Groups: streamers are sorted into Police, EMS & doctors, Lawyers & city, Mechanics, Business & jobs, crews named in two or more titles, and your own groups. Click a group above the map to show only them.'
+    ]
+  },
+  {
     version: '0.12.0',
     date: 'Nov 10, 2026',
     items: [

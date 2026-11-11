@@ -233,7 +233,7 @@
         this.s = Math.exp(Math.log(from.s) + (Math.log(to.s) - Math.log(from.s)) * e);
         this.moved();
         if (k < 1) requestAnimationFrame(step);
-        else if (area) this.onSelect(area);
+        else if (area && !this.noSelectOnFly) this.onSelect(area);
       };
       requestAnimationFrame(step);
     }
@@ -327,30 +327,70 @@
       if (text) { this.tip.textContent = text; this.tip.style.transform = `translate(${px + 14}px, ${py + 12}px)`; }
     }
 
-    setGroups(groups, selected, onSelect) {
+    setGroups(groups, selected, onSelect, opts = {}) {
       this.groups = groups; this.selected = selected; this.onSelect = onSelect;
+      this.onPick = opts.onPick || null; this.onHover = opts.onHover || null;
       this.renderDots();
       this.draw();
     }
-    // Streamer dots are HTML on top of the canvas (easy to click and hover).
+    // Streamers on the map: their Twitch pictures (up to three stacked when
+    // they're in the same spot), ringed in their group's color.
     renderDots() {
       this.dotsEl.textContent = '';
       this.dots = [];
       for (const g of [...this.groups].sort((a, b) => a.people.length - b.people.length)) {
         const pos = place(g.area, g.street);
         if (!pos) continue;
-        const n = g.people.length;
+        const people = [...g.people].sort((a, b) => b.viewers - a.viewers);
+        const n = people.length;
         const d = document.createElement('button');
-        d.className = 'npm-dot' + (this.selected === g.area ? ' sel' : '') + (g.street ? '' : ' area');
-        const size = Math.round(20 + 7 * Math.sqrt(n));
-        d.style.width = d.style.height = size + 'px';
-        d.style.marginLeft = d.style.marginTop = -size / 2 + 'px';
-        d.textContent = n;
-        d.title = `${g.street ? g.street + ', ' : ''}${g.area}\n${g.people.map((x) => x.name + (x.char ? ' (' + x.char + ')' : '')).join('\n')}`;
-        d.onclick = (e) => { e.stopPropagation(); this.onSelect(g.area); };
+        d.className = 'npm-mk' + (this.selected === g.area ? ' sel' : '') + (g.street ? '' : ' area');
+        const shown = people.slice(0, 3);
+        const size = 34;
+        d.style.width = (size + (shown.length - 1) * 14) + 'px';
+        d.style.height = size + 'px';
+        d.style.marginLeft = -(size + (shown.length - 1) * 14) / 2 + 'px';
+        d.style.marginTop = -size / 2 + 'px';
+        shown.forEach((p, i) => {
+          const im = document.createElement(p.avatar ? 'img' : 'span');
+          im.className = 'npm-av';
+          if (p.avatar) { im.src = p.avatar; im.alt = ''; im.loading = 'lazy'; } else im.textContent = (p.name || '?')[0];
+          im.style.left = i * 14 + 'px';
+          im.style.zIndex = 3 - i;
+          im.style.borderColor = p.color || '#9b6bff';
+          im.dataset.login = p.login;
+          d.append(im);
+        });
+        if (n > 1) { const b = document.createElement('span'); b.className = 'npm-count'; b.textContent = n; d.append(b); }
+        d.title = `${g.street ? g.street + ', ' : ''}${g.area}\n${people.map((x) => x.name + (x.char ? ' (' + x.char + ')' : '')).join('\n')}`;
+        d.onclick = (e) => {
+          e.stopPropagation();
+          // a click on one of the pictures picks that streamer
+          const login = e.target.dataset?.login;
+          const person = (login && people.find((p) => p.login === login)) || people[0];
+          if (this.onPick) this.onPick(g, person, pos); else this.onSelect(g.area);
+        };
+        d.onmouseenter = () => this.onHover?.(people.map((p) => p.login), true);
+        d.onmouseleave = () => this.onHover?.(people.map((p) => p.login), false);
         this.dotsEl.append(d);
-        this.dots.push({ d, x: pos[0], y: -pos[1], size });
+        this.dots.push({ d, x: pos[0], y: -pos[1], size, logins: people.map((p) => p.login) });
       }
+    }
+    // Light up the marker(s) for these streamers (from hovering the list).
+    highlight(logins, on) {
+      for (const m of this.dots || []) if (m.logins.some((l) => logins.includes(l))) m.d.classList.toggle('hl', on);
+    }
+    // A card pinned to a spot on the map; it moves with the map.
+    setPopup(el, pos) {
+      if (this.popup?.el && this.popup.el !== el) this.popup.el.remove();
+      this.popup = el ? { el, x: pos[0], y: -pos[1] } : null;
+      if (el && el.parentNode !== this.el) this.el.append(el);
+      this.moveDots();
+    }
+    // Where a streamer is, for flying the map there.
+    find(login) {
+      for (const g of this.groups) if (g.people.some((p) => p.login === login)) return { g, pos: place(g.area, g.street) };
+      return null;
     }
 
     draw() {
@@ -361,7 +401,15 @@
       for (const d of this.dots || []) {
         const [x, y] = this.toScreen(d.x, d.y);
         d.d.style.transform = `translate(${x}px, ${y}px)`;
-        d.d.style.display = x < -40 || y < -40 || x > this.w + 40 || y > this.h + 40 ? 'none' : '';
+        d.d.style.display = x < -60 || y < -40 || x > this.w + 60 || y > this.h + 40 ? 'none' : '';
+      }
+      if (this.popup) {
+        const [x, y] = this.toScreen(this.popup.x, this.popup.y);
+        // keep the card inside the map
+        const pw = this.popup.el.offsetWidth || 320, ph = this.popup.el.offsetHeight || 260;
+        const left = Math.max(8, Math.min(this.w - pw - 8, x - pw / 2));
+        const top = y - ph - 26 > 8 ? y - ph - 26 : Math.min(this.h - ph - 8, y + 26);
+        this.popup.el.style.transform = `translate(${left}px, ${top}px)`;
       }
     }
     // Paths for one road class (or city blocks) in the squares on screen.
@@ -609,9 +657,9 @@
     if (!view) view = new MapView();
     if (view.el.parentNode !== host) host.append(view.el);
     view.resize();
-    view.setGroups(groups, selected, onSelect);
+    view.setGroups(groups, selected, onSelect, arguments[2]);
     return groups.filter((g) => !place(g.area, g.street));
   }
 
-  window.NPMap = { draw, place, load };
+  window.NPMap = { draw, place, load, view: () => view };
 })();
