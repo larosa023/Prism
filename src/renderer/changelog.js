@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.10.1',
+    date: 'Nov 10, 2026',
+    items: [
+      'The NoPixel map is now built from GTA V\'s own game data: the real coastline, the Alamo Sea, every road (freeways highlighted), and the outline of every area as the game defines it. Streamer dots sit in the right spot for each area.',
+      'Area names appear as you zoom in (the big ones always show), dots and text stay the same size at any zoom, and the area you pick is outlined.',
+      'Zoom buttons, plus quick jumps to Los Santos, Blaine County and Paleto. Double-click to zoom in.',
+      'A few more areas are recognized from the HUD: Bolingbroke Penitentiary, Braddock Tunnel, Baytree Canyon, Galileo Park and Galileo Observatory.'
+    ]
+  },
+  {
     version: '0.10.0',
     date: 'Nov 10, 2026',
     items: [

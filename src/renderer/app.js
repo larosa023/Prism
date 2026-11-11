@@ -2591,8 +2591,8 @@
       const side = h('div', { class: 'npm-side' });
       const wrap = h('div', { class: 'npm' }, host, side);
       body.append(h('div', { class: 'rp-locstatus', id: 'rp-locstatus', text: locText() }), wrap);
-      const off = window.NPMap.draw(host, areas, { view: mapView, selected: mapSel, onSelect: (a) => { mapSel = a; render(); } });
-      host.append(h('div', { class: 'npm-hint', text: 'Scroll to zoom · drag to move · double-click to reset' }));
+      const drawn = window.NPMap.draw(host, areas, { view: mapView, selected: mapSel, onSelect: (a) => { mapSel = a; render(); } });
+      drawn.then(() => host.append(h('div', { class: 'npm-hint', text: 'Scroll or double-click to zoom · drag to move' })));
 
       const person = (x) => h('div', { class: 'rp-a-who' + (added.has(x.login) ? ' added' : ''), title: x.title, onclick: () => {
         if (!added.has(x.login)) { addStream({ platform: 'twitch', id: x.login, label: x.name }); toast(`Added ${x.name} to multi-view.`); render(); }
@@ -2615,7 +2615,7 @@
             h('span', { text: a.area }), h('b', { text: String(a.people.length) })));
         }
         side.append(top);
-        if (off.length) side.append(h('div', { class: 'muted small', text: 'Not on the map: ' + off.map((a) => `${a.area} (${a.people.length})`).join(', ') }));
+        drawn.then((off) => { if (off.length) side.append(h('div', { class: 'muted small', text: 'Not on the map: ' + off.map((a) => `${a.area} (${a.people.length})`).join(', ') })); });
       }
     }
 

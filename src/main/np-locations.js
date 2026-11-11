@@ -18,11 +18,11 @@ const REGIONS = {
   'Vinewood Hills & west coast': ['Vinewood Hills', 'Richman', 'Richman Glen', 'GWC and Golfing Society', 'Pacific Bluffs', 'Banham Canyon',
     'Chumash', 'Tongva Hills', 'Tongva Valley', 'Great Chaparral', 'Land Act Dam', 'Land Act Reservoir', 'Tataviam Mountains',
     'Palomino Highlands', 'Mount Haan', 'Ron Alternates Wind Farm', 'Palmer-Taylor Power Station', 'San Chianski Mountain Range',
-    'Davis Quartz', 'Noose Headquarters', 'Rogers Salvage & Scrap'],
+    'Davis Quartz', 'Noose Headquarters', 'N.O.O.S.E', 'Rogers Salvage & Scrap', 'Baytree Canyon', 'Galileo Park', 'Galileo Observatory'],
   'Blaine County': ['Sandy Shores', 'Alamo Sea', 'Grand Senora Desert', 'Harmony', 'Grapeseed', 'Stab City', 'Fort Zancudo',
     'Lago Zancudo', 'Zancudo River', 'Redwood Lights Track', 'Raton Canyon', 'Cassidy Creek', 'Mount Josiah', 'North Chumash',
     'Braddock Pass', 'Galilee', 'Humane Labs and Research', 'Mount Chiliad', 'Chiliad Mountain State Wilderness', 'Calafia Bridge',
-    'Mount Gordo', 'El Gordo Lighthouse', 'Thomson Scrapyard', 'Sandy Shores Airfield', 'McKenzie Field'],
+    'Mount Gordo', 'El Gordo Lighthouse', 'Thomson Scrapyard', 'Sandy Shores Airfield', 'McKenzie Field', 'Bolingbroke Penitentiary', 'Braddock Tunnel'],
   'Paleto & north': ['Paleto Bay', 'Paleto Forest', 'Paleto Cove', 'Procopio Beach', 'Procopio Promenade'],
   'At sea': ['Pacific Ocean', 'San Andreas', 'Alamo Sea Waters']
 };
