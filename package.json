@@ -1,7 +1,7 @@
 {
   "name": "prism",
   "productName": "Prism",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Lightweight, ad-light multi-stream client for Twitch, YouTube, TikTok and Kick",
   "main": "src/main/main.js",
   "author": "Anthony LaRosa",

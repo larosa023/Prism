@@ -1,4 +1,4 @@
-/* global Hls, prism */
+/* global Hls, prism */ // Hls is loaded on demand (loadHls)
 // Lightweight Twitch player: a <video> + hls.js in the main window, instead of
 // a separate player.twitch.tv web page (and browser process) per stream.
 (function () {
@@ -56,6 +56,19 @@
     };
   }
 
+  // The video library is loaded the first time a stream plays, not at start-up.
+  let hlsJob = null;
+  function loadHls() {
+    if (window.Hls) return Promise.resolve();
+    return (hlsJob ||= new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = '../../node_modules/hls.js/dist/hls.light.min.js';
+      el.onload = resolve;
+      el.onerror = () => { hlsJob = null; reject(new Error("couldn't load the video player")); };
+      document.head.append(el);
+    }));
+  }
+
   // Past broadcasts: the playlist comes from Prism's backend (it needs a
   // token); the rest loads directly like any web video.
   function makeVodLoader(id) {
@@ -104,6 +117,10 @@
       if (this.destroyed || this.suspended) return;
       this.stopHls();
       this.onStatus('Loading…');
+      if (this.kind !== 'clip') {
+        try { await loadHls(); } catch (e) { return this.onFatal(e.message); }
+        if (this.destroyed || this.suspended) return;
+      }
       let source = MASTER_PREFIX + this.login;
       if (this.kind === 'clip') return this.startClip();
       if (this.kind === 'kick') {

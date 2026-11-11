@@ -121,13 +121,30 @@ def chains(g):
         for b in g[a]:
             if frozenset((a, b)) not in seen: out.append(walk(a, b))
     return out
-roads_out = {}
+CELL = 1000
+cell_of = lambda x, y: f'{int((x - X0) // CELL)},{int((Y1 - y) // CELL)}'
+def to_cells(lines, tol):
+    # Each line is cut where it crosses into another 1 km cell, so the app
+    # only draws the cells on screen.
+    out = {}
+    for line in lines:
+        pts = measure.approximate_polygon(np.array(line, float), tol)
+        run = [pts[0]]; cur = cell_of(*pts[0])
+        for p_ in pts[1:]:
+            c2 = cell_of(*p_)
+            run.append(p_)
+            if c2 != cur:
+                out.setdefault(cur, []).append(run); run = [p_]; cur = c2
+        if len(run) > 1: out.setdefault(cur, []).append(run)
+    return {k: ''.join('M' + ' '.join(f'{int(x)},{int(-y)}' for x, y in r) for r in v) for k, v in out.items()}
+def whole(lines, tol):
+    return ''.join('M' + ' '.join(f'{int(x)},{int(-y)}' for x, y in measure.approximate_polygon(np.array(l, float), tol)) for l in lines)
+roads_out = {}; roads_lo = {}; road_lines = {}
 for c, g in adj.items():
-    parts = []
-    for line in chains(g):
-        pts = measure.approximate_polygon(np.array(line, float), {'freeway': 6, 'major': 5, 'minor': 4, 'dirt': 8}[c])
-        parts.append('M' + ' '.join(f'{int(x)},{int(-y)}' for x, y in pts))
-    roads_out[c] = ''.join(parts)
+    lines = chains(g)
+    road_lines[c] = lines
+    roads_out[c] = to_cells(lines, {'freeway': 6, 'major': 5, 'minor': 4, 'dirt': 8}[c])
+    roads_lo[c] = whole([l for l in lines if c in ('freeway', 'major') or len(l) > 3], {'freeway': 25, 'major': 20, 'minor': 18, 'dirt': 25}[c])
 
 # ---- Street names: label spots along each named street, and where each street is in each zone
 import math
@@ -145,9 +162,9 @@ for name, g in sg.items():
         if len(pts) < 2: continue
         seg = np.hypot(*np.diff(pts, axis=0).T)
         total = seg.sum()
-        if total < 120: continue
+        if total < 80: continue
         cum = np.concatenate([[0], np.cumsum(seg)])
-        n = max(1, int(total // 450))
+        n = max(1, int(total // 260))
         for k in range(n):
             t = (k + 0.5) * total / n
             i = min(len(seg) - 1, int(np.searchsorted(cum, t) - 1))
@@ -164,7 +181,7 @@ for name, g in sg.items():
     # drop anchors closer than 500 m to one already kept
     kept = []
     for a in sorted(anchors, key=lambda a: a[0]):
-        if all((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 > 320 ** 2 for b in kept): kept.append(a)
+        if all((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 > 200 ** 2 for b in kept): kept.append(a)
     if kept: streets.append({'n': name, 'a': kept})
 # where each street runs within each zone (for placing streamers on the right street)
 zone_names = order
@@ -292,8 +309,99 @@ for lev in range(50, 800, 50):
         contours.append(('M' + ' '.join(f'{x},{-y}' for x, y in pts), lev))
 contour_minor = ''.join(p_ for p_, lev in contours if lev % 200)
 contour_major = ''.join(p_ for p_, lev in contours if lev % 200 == 0)
+
+# ---- City blocks: the spaces between streets in built-up areas
+RB = 4.0
+WB, HB = int((X1 - X0) / RB), int((Y1 - Y0) / RB)
+def ijb(x, y): return ((Y1 - np.asarray(y)) / RB).astype(int), ((np.asarray(x) - X0) / RB).astype(int)
+def markb(grid, line):
+    for (x0, y0), (x1, y1) in zip(line[:-1], line[1:]):
+        n = int(max(abs(x1 - x0), abs(y1 - y0)) / RB) + 1
+        i, j = ijb(np.linspace(x0, x1, n), np.linspace(y0, y1, n))
+        ok = (i >= 0) & (i < HB) & (j >= 0) & (j < WB); grid[i[ok], j[ok]] = True
+road_px = np.zeros((HB, WB), bool)
+half = {'freeway': 12, 'major': 7, 'minor': 5, 'dirt': 3}
+for c, lines in road_lines.items():
+    g = np.zeros((HB, WB), bool)
+    for l in lines: markb(g, l)
+    road_px |= ndimage.binary_dilation(g, structure=morphology.disk(max(1, int(half[c] / RB))))
+urban_names = set(cover['city'][0]) | {'Sandy Shores', 'Paleto Bay', 'Grapeseed', 'Harmony', 'Vinewood Hills', 'Richman', 'Richman Glen', 'Pacific Bluffs', 'Chumash', 'Banham Canyon', 'Tataviam Mountains', 'Stab City', 'East Vinewood', 'Murrieta Heights'}
+urban = np.zeros((H, W), bool)
+for nm in urban_names:
+    if nm in order: urban |= owner == order.index(nm)
+urban_b = np.kron(urban, np.ones((int(R / RB) + 0, int(R / RB) + 0), bool)) if R % RB == 0 else None
+from skimage.transform import resize as _resize
+urban_b = _resize(urban.astype(float), (HB, WB), order=0) > 0.5
+land_b = _resize(land.astype(float), (HB, WB), order=0) > 0.5
+free_px = ~road_px & urban_b & land_b
+lab_b, nb = ndimage.label(free_px)
+sizes_b = ndimage.sum(np.ones_like(lab_b), lab_b, range(1, nb + 1)) * RB * RB
+keep = np.zeros(nb + 1, bool)
+keep[1:] = (sizes_b > 900) & (sizes_b < 260000)
+blocks = keep[lab_b]
+blocks = ndimage.binary_erosion(blocks, structure=morphology.disk(1))
+blocks = ndimage.binary_opening(blocks, structure=morphology.disk(1))
+block_cells = {}
+for c in measure.find_contours(np.pad(blocks, 1).astype(float), 0.5):
+    c = c - 1
+    if len(c) < 6: continue
+    c = measure.approximate_polygon(c, 0.9)
+    pts = [(X0 + (p_[1] + 0.5) * RB, Y1 - (p_[0] + 0.5) * RB) for p_ in c]
+    cx, cy = np.mean(pts, axis=0)
+    k = cell_of(cx, cy)
+    block_cells[k] = block_cells.get(k, '') + 'M' + ' '.join(f'{int(x)},{int(-y)}' for x, y in pts) + 'Z'
+
+# ---- Rivers and canals: boat routes inland
+water_lines = []
+bo = defaultdict(lambda: defaultdict(set))
+for s_ in D['segs']:
+    if not s_[4] or abs(s_[0] - s_[2]) + abs(s_[1] - s_[3]) > 400: continue
+    a = (round(s_[0]), round(s_[1])); b = (round(s_[2]), round(s_[3]))
+    i0, j0 = ij(*a); i1, j1 = ij(*b)
+    if not (0 <= i0 < H and 0 <= j0 < W and 0 <= i1 < H and 0 <= j1 < W): continue
+    if land[i0, j0] and land[i1, j1] and a != b: bo['w'][a].add(b); bo['w'][b].add(a)
+rivers = whole(chains(bo['w']), 6) if bo['w'] else ''
+
+# ---- Land use from the game's ambient zones (parks, golf, docks, quarry...)
+amb = _j.load(open(os.path.join(dumps_dir, 'ambientZones.json')))
+LU = [('park', r'downtown_park|richman_park|rockford_park'), ('industry', r'construction_site|port_cranes|docks_01|ls_docks|port_n$|port_se$|port_w$|factory_area'),
+      ('quarry', r'quarry'), ('farm', r'fields_01|vineyard_field|grapeseed_ranch'), ('airport', r'airport_area|big_zones_airport')]
+import re as _re
+landuse = []
+for z_ in amb:
+    nm = z_['Name'].lower()
+    if z_['Shape'] != 'Box' or nm.startswith('az_dlc_h4') or nm.startswith('az_yankton'): continue
+    for cat, rx in LU:
+        if _re.search(rx, nm):
+            px_, py_ = z_['OuterPosition']['X'], z_['OuterPosition']['Y']; sx, sy = z_['OuterSize']['X'] / 2, z_['OuterSize']['Y'] / 2
+            if X0 < px_ < X1 and Y0 < py_ < Y1:
+                landuse.append([cat, round(px_ - sx), round(-(py_ + sy)), round(sx * 2), round(sy * 2)])
+            break
+# fields from crop locations
+hf = _j.load(open(os.path.join(dumps_dir, 'objectslocations', 'worldHarvestFields.json')))
+fg = np.zeros((H, W), bool)
+for f_ in hf:
+    i, j = ij(f_['Position']['X'], f_['Position']['Y'])
+    if 0 <= i < H and 0 <= j < W: fg[i, j] = True
+fg = ndimage.binary_closing(ndimage.binary_dilation(fg, structure=disk(30)), structure=disk(40)) & land
+fields_path = path(padded_contours(fg), 10)
+
+# ---- Small things for close up: ATMs, bus stops, oil pumps
+def pts_of(fname):
+    try: return [(o['Position']['X'], o['Position']['Y']) for o in _j.load(open(os.path.join(dumps_dir, 'objectslocations', fname)))]
+    except Exception: return []
+for x, y in pts_of('worldAtms.json'): pois.append(['atm', 'ATM', round(x), round(y)])
+for x, y in pts_of('worldBusStops.json'): pois.append(['bus', 'Bus stop', round(x), round(y)])
+oil = []
+for x, y in pts_of('worldOilJacks.json'):
+    for c in oil:
+        if (c[0] / c[2] - x) ** 2 + (c[1] / c[2] - y) ** 2 < 150 ** 2: c[0] += x; c[1] += y; c[2] += 1; break
+    else: oil.append([x, y, 1])
+for c in oil: pois.append(['oil', 'Oil field', round(c[0] / c[2]), round(c[1] / c[2])])
+pois = [p_ for p_ in pois if X0 < p_[2] < X1 and Y0 < p_[3] < Y1]
+
 data = {'land': land_path, 'zones': zones, 'roads': roads_out, 'streets': streets, 'pois': pois, 'rails': rails_path, 'contours': [contour_minor, contour_major],
-        'bounds': [X0, Y0, X1, Y1]}
+        'bounds': [X0, Y0, X1, Y1], 'cell': CELL, 'roadsLo': roads_lo, 'blocks': block_cells, 'rivers': rivers, 'landuse': landuse, 'fields': fields_path}
 _j.dump({'streets': sorted(street_zone.keys()), 'streetZone': street_zone}, open(streets_json, 'w'), separators=(',', ':'))
 js = '// Generated from GTA V game data (zone bounds and the road network), see\n// scripts/README. Coordinates are game-world metres; y is flipped (north up).\nwindow.NP_MAP_DATA = ' + json.dumps(data, separators=(',', ':')) + ';\n'
 open(out_js, 'w').write(js)

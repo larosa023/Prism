@@ -20,12 +20,16 @@
     police: ['#3b82f6', '★'], hospital: ['#ef4444', '+'], fire: ['#f97316', '▲'], bank: ['#22c55e', '$'], store: ['#eab308', '◆'],
     gas: ['#a3a3a3', '⛽'], gun: ['#dc2626', '✚'], clothes: ['#ec4899', '◼'], barber: ['#a78bfa', '✂'], tattoo: ['#8b5cf6', '✒'],
     mechanic: ['#f59e0b', '⚙'], cars: ['#06b6d4', '◉'], bar: ['#d946ef', '♪'], fun: ['#14b8a6', '●'], shop: ['#facc15', '◆'],
-    gov: ['#64748b', '■'], home: ['#94a3b8', '⌂'], work: ['#78716c', '■']
+    gov: ['#64748b', '■'], home: ['#94a3b8', '⌂'], work: ['#78716c', '■'],
+    atm: ['#16a34a', '$'], bus: ['#0ea5e9', 'B'], oil: ['#57534e', '⛽']
   };
+  // Small things only show up close.
+  const CLOSE_ONLY = new Set(['atm', 'bus']);
+  const LANDUSE_FILL = { park: 'rgba(70,150,80,.35)', industry: 'rgba(120,120,135,.14)', quarry: 'rgba(170,140,100,.28)', farm: 'rgba(130,160,80,.18)', airport: 'rgba(140,140,150,.10)' };
   const POI_NAMES = {
     police: 'Police', hospital: 'Hospitals', fire: 'Fire', bank: 'Banks', store: 'Stores', gas: 'Gas', gun: 'Ammu-Nation', clothes: 'Clothing',
     barber: 'Barbers', tattoo: 'Tattoos', mechanic: 'Mechanics', cars: 'Car dealer', bar: 'Bars & clubs', fun: 'Fun', shop: 'Shops', gov: 'Government',
-    home: 'Motels', work: 'Work'
+    home: 'Motels', work: 'Work', atm: 'ATMs', bus: 'Bus stops', oil: 'Oil fields'
   };
 
   const REGION_FILL = { city: 'rgba(150,120,210,.10)', hills: 'rgba(110,170,120,.06)', blaine: 'rgba(210,175,100,.07)', north: 'rgba(90,170,180,.08)' };
@@ -48,11 +52,20 @@
         data = window.NP_MAP_DATA;
         delete window.NP_MAP_DATA;
         // Build the drawing paths once.
+        // Build the big drawing paths once; the detailed per-square ones
+        // (roads, city blocks) are built the first time they come on screen.
+        const bbox = (d) => {
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+          const n = d.match(/-?\d+/g) || [];
+          for (let i = 0; i + 1 < n.length; i += 2) { const x = +n[i], y = +n[i + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+          return [x0, y0, x1, y1];
+        };
         P = {
           land: new Path2D(data.land),
-          zones: data.zones.filter((z) => !z.water).map((z) => ({ z, path: new Path2D(z.path), fill: REGION_FILL[regionOf(z.name)] })),
-          freeway: new Path2D(data.roads.freeway), major: new Path2D(data.roads.major),
-          minor: new Path2D(data.roads.minor), dirt: new Path2D(data.roads.dirt), rails: new Path2D(data.rails),
+          zones: data.zones.filter((z) => !z.water).map((z) => ({ z, path: new Path2D(z.path), fill: REGION_FILL[regionOf(z.name)], box: bbox(z.path) })),
+          lo: Object.fromEntries(Object.entries(data.roadsLo || {}).map(([k, d]) => [k, new Path2D(d)])),
+          cells: {}, blockCells: new Map(),
+          rails: new Path2D(data.rails), rivers: new Path2D(data.rivers || ''), fields: new Path2D(data.fields || ''),
           contour: new Path2D(data.contours?.[0] || ''), contourMajor: new Path2D(data.contours?.[1] || '')
         };
         relief = new Image();
@@ -102,6 +115,11 @@
       this.cx = 200; this.cy = -1900; this.s = 0; // center (map space) and pixels per metre
       this.groups = []; this.selected = null; this.onSelect = () => {};
       this.hidden = new Set(); // place kinds turned off
+      // While you drag or zoom, the last full drawing is moved and scaled
+      // (instant), and the map is redrawn sharply once you stop.
+      this.snap = document.createElement('canvas');
+      this.snapView = null;
+      this.lastMove = 0;
       this.tools();
       this.events();
       new ResizeObserver(() => this.resize()).observe(this.el);
@@ -213,7 +231,7 @@
         const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
         this.cx = from.cx + (to.cx - from.cx) * e; this.cy = from.cy + (to.cy - from.cy) * e;
         this.s = Math.exp(Math.log(from.s) + (Math.log(to.s) - Math.log(from.s)) * e);
-        this.paint();
+        this.moved();
         if (k < 1) requestAnimationFrame(step);
         else if (area) this.onSelect(area);
       };
@@ -224,9 +242,16 @@
     toScreen(mx, my) { return [(mx - this.cx) * this.s + this.w / 2, (my - this.cy) * this.s + this.h / 2]; }
     zoomAt(px, py, f) {
       const [mx, my] = this.toMap(px, py);
-      this.s = Math.max(this.minScale(), Math.min(1.2, this.s * f));
+      this.s = Math.max(this.minScale(), Math.min(1.3, this.s * f));
       this.cx = mx - (px - this.w / 2) / this.s; this.cy = my - (py - this.h / 2) / this.s;
+      this.moved();
+    }
+    // Something is moving: draw quickly now, sharply when it settles.
+    moved() {
+      this.lastMove = performance.now();
       this.draw();
+      clearTimeout(this.settle);
+      this.settle = setTimeout(() => { this.lastMove = 0; this.draw(); }, 140);
     }
 
     events() {
@@ -246,11 +271,13 @@
         if (drag) {
           const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
           if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
-          if (drag.moved) { this.cx = drag.cx - dx / this.s; this.cy = drag.cy - dy / this.s; this.draw(); }
+          if (drag.moved) { this.cx = drag.cx - dx / this.s; this.cy = drag.cy - dy / this.s; this.moved(); }
           this.tip.hidden = true;
           return;
         }
-        this.hover(e);
+        // hover work once per frame at most, and not while moving
+        this.hoverEvt = e;
+        if (!this.hoverRaf) this.hoverRaf = requestAnimationFrame(() => { this.hoverRaf = 0; if (!this.lastMove) this.hover(this.hoverEvt); });
       });
       this.canvas.addEventListener('pointerup', (e) => {
         if (drag && !drag.moved) {
@@ -273,7 +300,12 @@
       ctx.save();
       ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.w / 2 - this.cx * s), dpr * (this.h / 2 - this.cy * s));
       let hit = null;
-      for (const z of P.zones) if (ctx.isPointInPath(z.path, px * dpr, py * dpr)) { if (!hit || z.z.area < hit.area) hit = z.z; }
+      const [mx, my] = this.toMap(px, py);
+      for (const z of P.zones) {
+        const b = z.box;
+        if (mx < b[0] || mx > b[2] || my < b[1] || my > b[3]) continue; // quick check first
+        if (ctx.isPointInPath(z.path, px * dpr, py * dpr)) { if (!hit || z.z.area < hit.area) hit = z.z; }
+      }
       ctx.restore();
       return hit;
     }
@@ -285,7 +317,7 @@
       if (this.s >= 0.06) {
         const hit = this.s >= 0.33 ? 9 : 5;
         for (const p of data.pois) {
-          if (this.hidden.has(p[0])) continue;
+          if (this.hidden.has(p[0]) || (CLOSE_ONLY.has(p[0]) && this.s < 0.6)) continue;
           const [sx, sy] = this.toScreen(p[2], -p[3]);
           if (Math.abs(sx - px) < hit && Math.abs(sy - py) < hit) { text = p[1]; break; }
         }
@@ -325,6 +357,29 @@
       if (this.raf) return;
       this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(); });
     }
+    moveDots() {
+      for (const d of this.dots || []) {
+        const [x, y] = this.toScreen(d.x, d.y);
+        d.d.style.transform = `translate(${x}px, ${y}px)`;
+        d.d.style.display = x < -40 || y < -40 || x > this.w + 40 || y > this.h + 40 ? 'none' : '';
+      }
+    }
+    // Paths for one road class (or city blocks) in the squares on screen.
+    eachCell(kind, fn) {
+      const src = kind === 'blocks' ? data.blocks : data.roads[kind];
+      if (!src) return;
+      const cache = kind === 'blocks' ? P.blockCells : (P.cells[kind] ||= new Map());
+      const C = data.cell || 1000, [X0, , , Y1] = data.bounds;
+      const [vx0, vy0] = this.toMap(0, 0), [vx1, vy1] = this.toMap(this.w, this.h);
+      const c0 = Math.floor((vx0 - X0) / C) - 1, c1 = Math.floor((vx1 - X0) / C) + 1;
+      const r0 = Math.floor((Y1 + vy0) / C) - 1, r1 = Math.floor((Y1 + vy1) / C) + 1;
+      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+        const k = c + ',' + r;
+        let p = cache.get(k);
+        if (p === undefined) { p = src[k] ? new Path2D(src[k]) : null; cache.set(k, p); }
+        if (p) fn(p);
+      }
+    }
     paint() {
       if (!P || !this.w) return;
       const ctx = this.canvas.getContext('2d');
@@ -333,19 +388,53 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = '#0b1d2b';
       ctx.fillRect(0, 0, this.w, this.h);
+      const [X0, Y0, X1, Y1] = data.bounds;
+      // Quick frame while moving: the last sharp drawing, moved and scaled.
+      const sv = this.snapView;
+      if (this.lastMove && sv && s / sv.s > 0.35 && s / sv.s < 3) {
+        ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.w / 2 - this.cx * s), dpr * (this.h / 2 - this.cy * s));
+        if (relief?.complete && relief.naturalWidth) ctx.drawImage(relief, X0, -Y1, X1 - X0, Y1 - Y0);
+        const k = s / sv.s;
+        ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * (this.w / 2 * (1 - k) + (sv.cx - this.cx) * s), dpr * (this.h / 2 * (1 - k) + (sv.cy - this.cy) * s));
+        ctx.imageSmoothingQuality = 'low';
+        ctx.drawImage(this.snap, 0, 0, sv.w, sv.h);
+        this.moveDots();
+        return;
+      }
       ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.w / 2 - this.cx * s), dpr * (this.h / 2 - this.cy * s));
       // visible box (map space) for skipping work off screen
       const [vx0, vy0] = this.toMap(0, 0), [vx1, vy1] = this.toMap(this.w, this.h);
       const vis = (x, y, m = 0) => x > vx0 - m && x < vx1 + m && y > vy0 - m && y < vy1 + m;
 
       // Land with hills
-      const [X0, Y0, X1, Y1] = data.bounds;
       if (relief?.complete && relief.naturalWidth) {
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(relief, X0, -Y1, X1 - X0, Y1 - Y0);
       } else { ctx.fillStyle = '#1e2a22'; ctx.fill(P.land); }
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.strokeStyle = 'rgba(120,170,150,.45)'; ctx.lineWidth = 1.2 * px; ctx.stroke(P.land);
+
+      // Land use: parks, golf, docks, quarries, farm fields, the airport
+      ctx.save();
+      ctx.clip(P.land); // keep land use on land (the game's boxes run into the sea)
+      for (const [cat, x, y, w2, h2] of data.landuse || []) {
+        if (!vis(x + w2 / 2, y + h2 / 2, Math.max(w2, h2))) continue;
+        ctx.fillStyle = LANDUSE_FILL[cat] || 'rgba(255,255,255,.05)';
+        ctx.fillRect(x, y, w2, h2);
+      }
+      ctx.fillStyle = 'rgba(150,175,80,.28)'; ctx.fill(P.fields);
+      ctx.restore();
+
+      // City blocks (the spaces between streets) as you get closer
+      if (s >= 0.16) {
+        const a = Math.min(1, (s - 0.16) / 0.12);
+        ctx.fillStyle = `rgba(78,84,96,${0.75 * a})`;
+        this.eachCell('blocks', (p) => ctx.fill(p));
+        if (s >= 0.4) { ctx.strokeStyle = `rgba(160,170,190,${0.25 * a})`; ctx.lineWidth = px; this.eachCell('blocks', (p) => ctx.stroke(p)); }
+      }
+
+      // Rivers and canals
+      ctx.strokeStyle = 'rgba(30,70,100,.9)'; ctx.lineWidth = Math.max(1.4 * px, 16); ctx.stroke(P.rivers);
 
       // Height lines (every 50 m, thicker every 200 m)
       if (s >= 0.1) {
@@ -356,7 +445,7 @@
 
       // Areas
       const sel = this.selected && zoneFor(this.selected);
-      for (const z of P.zones) { ctx.fillStyle = z.fill; ctx.fill(z.path); }
+      if (s < 0.5) for (const z of P.zones) { ctx.fillStyle = z.fill; ctx.fill(z.path); }
       ctx.strokeStyle = s < 0.2 ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.10)'; ctx.lineWidth = px;
       for (const z of P.zones) ctx.stroke(z.path);
       if (sel) {
@@ -367,23 +456,30 @@
       // Roads: more of them as you zoom in. Up close they're drawn at their real
       // width, so the separate lanes of a freeway read as one road.
       const w = (minPx, metres) => Math.max(minPx * px, metres);
-      const road = (path, color, width) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke(path); };
-      road(P.dirt, s >= 0.22 ? 'rgba(176,150,105,.5)' : 'rgba(176,150,105,.32)', w(s >= 0.6 ? 1.2 : s >= 0.22 ? 0.8 : 0.5, 4));
+      // Zoomed out: one simplified path per kind. Closer: full detail, only for the squares on screen.
+      const far = s < 0.2;
+      const road = (kind, color, width) => {
+        ctx.strokeStyle = color; ctx.lineWidth = width;
+        if (kind === 'rails') { ctx.stroke(P.rails); return; }
+        if (far && P.lo[kind]) ctx.stroke(P.lo[kind]);
+        else this.eachCell(kind, (p) => ctx.stroke(p));
+      };
+      road('dirt', s >= 0.22 ? 'rgba(176,150,105,.5)' : 'rgba(176,150,105,.32)', w(s >= 0.6 ? 1.2 : s >= 0.22 ? 0.8 : 0.5, 4));
       // outlines first, then all the road surfaces on top, so joins are clean
       if (s >= 0.4) {
-        if (s >= 0.14) road(P.minor, '#161b18', w(2.6, 11));
-        road(P.major, '#161b18', w(3.4, 15));
+        if (s >= 0.14) road('minor', '#161b18', w(2.6, 8));
+        road('major', '#161b18', w(3.4, 11));
       }
-      road(P.freeway, 'rgba(60,40,10,.75)', w(s >= 0.5 ? 5.5 : 3.5, 30));
+      road('freeway', 'rgba(60,40,10,.75)', w(s >= 0.5 ? 5.5 : 3.5, 20));
       const surface = s >= 0.4 ? '#a9b0ab' : null;
-      road(P.minor, surface || (s >= 0.14 ? 'rgba(200,208,204,.55)' : 'rgba(200,208,204,.38)'), w(s >= 0.4 ? 1.2 : s >= 0.14 ? 0.8 : 0.55, 7.5));
-      road(P.major, surface || 'rgba(236,236,232,.75)', w(s >= 0.3 ? 1.7 : 1, 11));
+      road('minor', surface || (s >= 0.14 ? 'rgba(200,208,204,.55)' : 'rgba(200,208,204,.38)'), w(s >= 0.4 ? 1.2 : s >= 0.14 ? 0.8 : 0.55, 5));
+      road('major', surface || 'rgba(236,236,232,.75)', w(s >= 0.3 ? 1.7 : 1, 7.5));
       {
         ctx.setLineDash(s >= 0.12 ? [5 * px, 4 * px] : [3 * px, 2 * px]);
-        road(P.rails, 'rgba(200,170,140,.7)', 1.3 * px);
+        road('rails', 'rgba(200,170,140,.7)', 1.3 * px);
         ctx.setLineDash([]);
       }
-      road(P.freeway, '#e0aa4a', w(s >= 0.5 ? 3.5 : 2, 22));
+      road('freeway', '#e0aa4a', w(s >= 0.5 ? 3.5 : 2, 14));
 
       // Text and icons in screen pixels from here on
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -399,7 +495,7 @@
       if (s < 0.33) {
         const r = s < 0.12 ? 2.2 : 3;
         for (const p of data.pois) {
-          if (this.hidden.has(p[0]) || !vis(p[2], -p[3], 20)) continue;
+          if (this.hidden.has(p[0]) || CLOSE_ONLY.has(p[0]) || !vis(p[2], -p[3], 20)) continue;
           const [x, y] = this.toScreen(p[2], -p[3]);
           ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fillStyle = (POI_STYLE[p[0]] || ['#888'])[0]; ctx.fill();
@@ -410,7 +506,7 @@
         ctx.font = '11px "Segoe UI Symbol", "Segoe UI", sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         for (const p of data.pois) {
-          if (this.hidden.has(p[0]) || !vis(p[2], -p[3], 50)) continue;
+          if (this.hidden.has(p[0]) || (CLOSE_ONLY.has(p[0]) && s < 0.6) || !vis(p[2], -p[3], 50)) continue;
           const [x, y] = this.toScreen(p[2], -p[3]);
           const [color, glyph] = POI_STYLE[p[0]] || ['#888', '●'];
           ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2);
@@ -490,12 +586,13 @@
         }
       }
 
-      // Move the streamer dots
-      for (const d of this.dots || []) {
-        const [x, y] = this.toScreen(d.x, d.y);
-        d.d.style.transform = `translate(${x}px, ${y}px)`;
-        d.d.style.display = x < -40 || y < -40 || x > this.w + 40 || y > this.h + 40 ? 'none' : '';
-      }
+      this.moveDots();
+      // Keep this drawing for quick frames while moving.
+      if (this.snap.width !== this.canvas.width || this.snap.height !== this.canvas.height) { this.snap.width = this.canvas.width; this.snap.height = this.canvas.height; }
+      const sc = this.snap.getContext('2d');
+      sc.setTransform(1, 0, 0, 1, 0, 0);
+      sc.drawImage(this.canvas, 0, 0);
+      this.snapView = { cx: this.cx, cy: this.cy, s: this.s, w: this.w, h: this.h };
     }
   }
 

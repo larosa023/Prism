@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.12.0',
+    date: 'Nov 10, 2026',
+    items: [
+      'NoPixel map, much more detail: city blocks between the streets, parks, farm fields, docks, quarries and the airport grounds, rivers and the Vespucci canals, ATMs, bus stops and oil fields up close, and street names placed about twice as often.',
+      'Smoother map: while you drag or zoom, the map moves instantly and redraws sharply the moment you stop. Only the part of the map on screen is drawn in full detail, and hovering no longer does heavy work on every mouse move.',
+      'Less memory in long sessions: chat keeps a much smaller copy of each message for the "click a name" history (about a third of the size), with a limit per channel, so busy chats no longer pile up memory over hours.',
+      'The video player library now loads when the first stream starts, not when Prism opens.'
+    ]
+  },
+  {
     version: '0.11.0',
     date: 'Nov 10, 2026',
     items: [

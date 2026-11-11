@@ -804,7 +804,7 @@ body.theater .theater-exit:hover, body.theater.theater-peek .theater-exit { opac
 .npm-places { position: absolute; top: 34px; right: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 10px 12px; border-radius: 10px; background: rgba(8,14,20,.95); border: 1px solid var(--line); font-size: 12px; }
 .npm-places label { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
 .npm-sw { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: #fff; font-size: 9px; }
-.npm-side { width: 300px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
+.npm-side { width: 300px; flex: none; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
 .npm-watch { align-self: flex-start; }
 .npm-top { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
 .npm-row { display: flex; justify-content: space-between; background: none; border: 0; color: var(--text); padding: 6px 8px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 13px; }

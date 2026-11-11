@@ -214,7 +214,7 @@
     requestAnimationFrame(next);
   }
 
-  const useNative = (s) => !s.forceEmbed && s.player !== 'embed' && window.NativeTwitchPlayer && window.Hls?.isSupported() &&
+  const useNative = (s) => !s.forceEmbed && s.player !== 'embed' && window.NativeTwitchPlayer && (window.Hls ? window.Hls.isSupported() : !!window.MediaSource) &&
     ((s.platform === 'twitch' && S.twitchPlayer !== 'embed') || (s.platform === 'kick' && S.kickPlayer !== 'embed') || s.platform === 'vod');
   // Streams shown in the grid (popped-out ones play in their own window).
   const stageStreams = () => visibleStreams().filter((s) => !s.popped);
@@ -632,7 +632,7 @@
     if (!s) return;
     streams = streams.filter((x) => x !== s);
     persistStreams();
-    if (s.platform === 'twitch') { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); }
+    if (s.platform === 'twitch') { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); logTotals.delete(s.id); }
     dropChatPane(key);
     if (chatKey === key) chatKey = null;
     renderStage();
@@ -1525,8 +1525,18 @@
 
   // ---- Per-user message history (click a name to see everything they said)
   // Kept separately from the visible chat so it survives the chat's line cap.
-  const USER_LOG_MAX = 100;       // messages kept per person
-  const USER_LOG_USERS = 1500;    // people kept per channel (least recent dropped)
+  const USER_LOG_MAX = 60;        // messages kept per person
+  const USER_LOG_USERS = 800;     // people kept per channel (least recent dropped)
+  const USER_LOG_TOTAL = 6000;    // messages kept per channel in all (busy chats add up fast)
+  const KEEP_TAGS = ['id', 'login', 'display-name', 'color', 'badges', 'emotes', 'reply-parent-display-name', 'reply-parent-msg-body', 'reply-parent-user-login', 'reply-parent-msg-id'];
+  // Keep only what's needed to show the message again (the full tags were
+  // several times bigger, which added up in long sessions on busy channels).
+  const slimMsg = (m) => {
+    const tags = {};
+    for (const k of KEEP_TAGS) if (m.tags[k] !== undefined && m.tags[k] !== '') tags[k] = m.tags[k];
+    return { tags, nick: m.nick, text: m.text };
+  };
+  const logTotals = new Map(); // channel -> messages kept
   const userLogs = new Map();     // channel -> Map(login -> { name, color, badges, msgs: [] })
   let userCard = null;            // { ch, login }
 
@@ -1542,7 +1552,7 @@
       u.name = u.name || m.tags['display-name'] || m.nick || login;
       u.color = u.color || m.tags.color;
       u.badges = u.badges || m.tags.badges;
-      if (u.msgs.length < USER_LOG_MAX) u.msgs.unshift({ at: opt.at, m, deleted: !!opt.deleted, history: true });
+      if (u.msgs.length < USER_LOG_MAX) { u.msgs.unshift({ at: opt.at, m: slimMsg(m), deleted: !!opt.deleted, history: true }); logTotals.set(ch, (logTotals.get(ch) || 0) + 1); }
       if (userCard && userCard.ch === ch && userCard.login === login) renderUserCard(false);
       return;
     }
@@ -1551,10 +1561,17 @@
     u.name = m.tags['display-name'] || m.nick || login;
     u.color = m.tags.color;
     u.badges = m.tags.badges;
-    u.msgs.push({ at: Date.now(), m, deleted: false });
-    if (u.msgs.length > USER_LOG_MAX) u.msgs.shift();
+    u.msgs.push({ at: Date.now(), m: slimMsg(m), deleted: false });
+    let total = (logTotals.get(ch) || 0) + 1;
+    if (u.msgs.length > USER_LOG_MAX) { u.msgs.shift(); total--; }
     byUser.set(login, u);
-    if (byUser.size > USER_LOG_USERS) byUser.delete(byUser.keys().next().value);
+    // Too many people or messages: forget the least recently active people.
+    while (byUser.size > USER_LOG_USERS || (total > USER_LOG_TOTAL && byUser.size > 1)) {
+      const oldest = byUser.keys().next().value;
+      total -= byUser.get(oldest).msgs.length;
+      byUser.delete(oldest);
+    }
+    logTotals.set(ch, total);
     if (userCard && userCard.ch === ch && userCard.login === login) renderUserCard(true);
   }
   function markUserLog(ch, login, test) {
@@ -1914,7 +1931,7 @@
     if (!s) return;
     s.chatOff = off;
     if (s.platform === 'twitch') {
-      if (off) { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); } else joinChat(s.id);
+      if (off) { chat.part(s.id); dropChatPane('twitch:' + s.id); userLogs.delete(s.id); logTotals.delete(s.id); } else joinChat(s.id);
     } else if (off) dropChatPane(key);
     persistStreams();
     if (!off) { chatKey = key; setChat(key); }
