@@ -1,11 +1,9 @@
-// The NoPixel tab's map of Los Santos and Blaine County.
-// Coastline, zone outlines and roads come from GTA V's own game data (zone
-// bounds and the road network, see scripts/map), so areas are where the game
-// puts them. Positions are game-world metres (x east, y north); the SVG uses
-// -y so north is up.
+// The NoPixel tab's map of Los Santos and Blaine County, drawn on a canvas.
+// Everything on it comes from GTA V's own game data (see scripts/map): the
+// coastline, hills, every road and street name, railways, the game's area
+// boundaries, and places like police stations, hospitals and stores.
+// Positions are game-world metres; "map space" is (x, -y) so north is up.
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-  const el = (tag, attrs = {}, ...kids) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); n.append(...kids); return n; };
   const key = (name) => String(name || '').toLowerCase().replace(/[^a-z]/g, '');
 
   // Places Prism can read from a HUD that aren't zones of their own.
@@ -13,38 +11,25 @@
     'Diamond Casino': [925, 46], 'Vinewood Bowl': [686, 577], 'Del Perro Pier': [-1650, -1080], 'Puerto Del Sol': [-860, -1340],
     'Cypress Flats Port': [1000, -2500], 'Sandy Shores Airfield': [1730, 3290], 'McKenzie Field': [2120, 4805],
     'Thomson Scrapyard': [2400, 3100], 'Procopio Promenade': [1450, 6480], 'Mount Haan': [900, 1350], 'Rogers Salvage & Scrap': [-460, -1700],
-    'Noose Headquarters': [2520, -380], 'Tataviam': [2500, -400], 'Pacific Ocean': null
+    'Noose Headquarters': [2520, -380], 'Tataviam': [2500, -400]
   };
-  const ALIASES = { noose: 'N.O.O.S.E', nooseheadquarters: 'N.O.O.S.E', bolingbroke: 'Bolingbroke Penitentiary', prison: 'Bolingbroke Penitentiary' };
+  const ALIASES = { noose: 'N.O.O.S.E', nooseheadquarters: 'N.O.O.S.E', bolingbroke: 'Bolingbroke Penitentiary' };
 
-  let data = null, loading = null;
-  function load() {
-    if (data) return Promise.resolve(data);
-    if (!loading) loading = new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'np-map-data.js';
-      s.onload = () => { data = window.NP_MAP_DATA; resolve(data); };
-      s.onerror = () => { loading = null; reject(new Error('map data missing')); };
-      document.head.append(s);
-    });
-    return loading;
-  }
-  let zoneByKey = null;
-  function zoneFor(area) {
-    if (!data) return null;
-    if (!zoneByKey) zoneByKey = new Map(data.zones.map((z) => [key(z.name), z]));
-    const k = key(area);
-    return zoneByKey.get(k) || zoneByKey.get(key(ALIASES[k] || '')) || null;
-  }
-  // Where an area name sits on the map, or null.
-  function place(area) {
-    const z = zoneFor(area);
-    if (z) return [z.x, z.y];
-    const lm = Object.entries(LANDMARKS).find(([n]) => key(n) === key(area));
-    return lm ? lm[1] : null;
-  }
+  // How each kind of place is drawn: a colored badge with a short glyph.
+  const POI_STYLE = {
+    police: ['#3b82f6', '★'], hospital: ['#ef4444', '+'], fire: ['#f97316', '▲'], bank: ['#22c55e', '$'], store: ['#eab308', '◆'],
+    gas: ['#a3a3a3', '⛽'], gun: ['#dc2626', '✚'], clothes: ['#ec4899', '◼'], barber: ['#a78bfa', '✂'], tattoo: ['#8b5cf6', '✒'],
+    mechanic: ['#f59e0b', '⚙'], cars: ['#06b6d4', '◉'], bar: ['#d946ef', '♪'], fun: ['#14b8a6', '●'], shop: ['#facc15', '◆'],
+    gov: ['#64748b', '■'], home: ['#94a3b8', '⌂'], work: ['#78716c', '■']
+  };
+  const POI_NAMES = {
+    police: 'Police', hospital: 'Hospitals', fire: 'Fire', bank: 'Banks', store: 'Stores', gas: 'Gas', gun: 'Ammu-Nation', clothes: 'Clothing',
+    barber: 'Barbers', tattoo: 'Tattoos', mechanic: 'Mechanics', cars: 'Car dealer', bar: 'Bars & clubs', fun: 'Fun', shop: 'Shops', gov: 'Government',
+    home: 'Motels', work: 'Work'
+  };
 
-  const REGION_OF = (name) => {
+  const REGION_FILL = { city: 'rgba(150,120,210,.10)', hills: 'rgba(110,170,120,.06)', blaine: 'rgba(210,175,100,.07)', north: 'rgba(90,170,180,.08)' };
+  const regionOf = (name) => {
     const z = name.toLowerCase();
     if (/paleto|procopio/.test(z)) return 'north';
     if (/alamo|sandy|senora|harmony|grapeseed|stab|zancudo|redwood|raton|cassidy|josiah|chumash|braddock|galilee|humane|chiliad|calafia|gordo|bolingbroke|davis quartz|lago/.test(z)) return 'blaine';
@@ -52,129 +37,381 @@
     return 'city';
   };
 
-  const BOUNDS = { x: -4200, y: -8200, w: 8800, h: 12400 }; // in SVG units (y flipped)
+  // ---- Data (loaded the first time the map opens) ----------------------------
+  let data = null, loading = null, P = null, relief = null;
+  function load() {
+    if (data) return Promise.resolve(data);
+    if (!loading) loading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'np-map-data.js';
+      s.onload = () => {
+        data = window.NP_MAP_DATA;
+        delete window.NP_MAP_DATA;
+        // Build the drawing paths once.
+        P = {
+          land: new Path2D(data.land),
+          zones: data.zones.filter((z) => !z.water).map((z) => ({ z, path: new Path2D(z.path), fill: REGION_FILL[regionOf(z.name)] })),
+          freeway: new Path2D(data.roads.freeway), major: new Path2D(data.roads.major),
+          minor: new Path2D(data.roads.minor), dirt: new Path2D(data.roads.dirt), rails: new Path2D(data.rails)
+        };
+        relief = new Image();
+        relief.src = 'np-map-shade.webp';
+        relief.onload = () => view?.draw();
+        resolve(data);
+      };
+      s.onerror = () => { loading = null; reject(new Error('map data missing')); };
+      document.head.append(s);
+    });
+    return loading;
+  }
 
-  // view = { x, y, k } is kept by the caller so the zoom survives redraws.
-  async function draw(host, areas, { view, selected, onSelect }) {
-    host.textContent = '';
-    try { await load(); } catch { host.append(Object.assign(document.createElement('div'), { className: 'rp-empty', textContent: "Couldn't load the map." })); return []; }
-    if (!host.isConnected) return [];
-    const svg = el('svg', { class: 'npm-svg', viewBox: `${BOUNDS.x} ${BOUNDS.y} ${BOUNDS.w} ${BOUNDS.h}`, preserveAspectRatio: 'xMidYMid meet' });
-    const world = el('g', { class: 'npm-world' });
-    svg.append(world);
-    host.append(svg);
-
-    world.append(el('path', { class: 'npm-land', d: data.land }));
-    const zoneLayer = el('g', { class: 'npm-zones' });
-    const sel = selected ? zoneFor(selected) : null;
-    for (const z of data.zones) {
-      if (z.water) continue;
-      const p = el('path', { class: 'npm-zone r-' + REGION_OF(z.name) + (z === sel ? ' sel' : ''), d: z.path });
-      p.append(el('title', {}, z.name));
-      zoneLayer.append(p);
+  let zoneByKey = null;
+  function zoneFor(area) {
+    if (!data) return null;
+    if (!zoneByKey) zoneByKey = new Map(data.zones.map((z) => [key(z.name), z]));
+    const k = key(area);
+    return zoneByKey.get(k) || zoneByKey.get(key(ALIASES[k] || '')) || null;
+  }
+  // Where an area (and, if known, street) is: [x, y] in world metres, or null.
+  function place(area, street) {
+    const z = zoneFor(area);
+    if (street && data?.streetZone?.[street]) {
+      const byZone = data.streetZone[street];
+      const p = (z && byZone[z.name]) || null;
+      if (p) return p;
     }
-    world.append(zoneLayer);
-    world.append(el('path', { class: 'npm-road dirt', d: data.roads.dirt }));
-    world.append(el('path', { class: 'npm-road minor', d: data.roads.minor }));
-    world.append(el('path', { class: 'npm-road major', d: data.roads.major }));
-    world.append(el('path', { class: 'npm-road freeway', d: data.roads.freeway }));
+    if (z) return [z.x, z.y];
+    const lm = Object.entries(LANDMARKS).find(([n]) => key(n) === key(area));
+    return lm ? lm[1] : null;
+  }
 
-    // Area names: big areas always, smaller ones as you zoom in.
-    const labelLayer = el('g', { class: 'npm-labels' });
-    const labels = [];
-    for (const z of data.zones) {
-      const t = el('text', { class: 'npm-label' + (z.water ? ' water' : ''), x: z.x, y: -z.y, 'text-anchor': 'middle', dy: '0.35em' }, z.name);
-      labels.push({ t, area: z.area, y: -z.y, name: z.name });
-      labelLayer.append(t);
+  // ---- The view ---------------------------------------------------------------
+  let view = null; // one map, reused every time the tab redraws
+  class MapView {
+    constructor() {
+      this.el = document.createElement('div');
+      this.el.className = 'npm-map';
+      this.canvas = document.createElement('canvas');
+      this.dotsEl = document.createElement('div');
+      this.dotsEl.className = 'npm-dots';
+      this.tip = document.createElement('div');
+      this.tip.className = 'npm-tip';
+      this.tip.hidden = true;
+      this.el.append(this.canvas, this.dotsEl, this.tip);
+      this.cx = 200; this.cy = -1900; this.s = 0; // center (map space) and pixels per metre
+      this.groups = []; this.selected = null; this.onSelect = () => {};
+      this.hidden = new Set(); // place kinds turned off
+      this.tools();
+      this.events();
+      new ResizeObserver(() => this.resize()).observe(this.el);
     }
-    world.append(labelLayer);
 
-    // Streamer dots
-    const dotLayer = el('g', { class: 'npm-dots' });
-    const dots = [];
-    const off = [];
-    for (const a of [...areas].sort((p, q) => p.people.length - q.people.length)) {
-      const pos = place(a.area);
-      if (!pos) { off.push(a); continue; }
-      const n = a.people.length;
-      const r = 9 + 4 * Math.sqrt(n);
-      const inner = el('g', {},
-        el('circle', { r: r + 4, class: 'npm-halo' }), el('circle', { r, class: 'npm-core' }),
-        el('text', { class: 'npm-n', 'text-anchor': 'middle', dy: '0.35em', 'font-size': Math.max(10, r * 0.95) }, String(n)));
-      const g = el('g', { class: 'npm-dot' + (selected === a.area ? ' sel' : ''), 'data-area': a.area }, inner);
-      g.append(el('title', {}, `${a.area}: ${a.people.map((x) => x.name).join(', ')}`));
-      dots.push({ g, x: pos[0], y: -pos[1], r, area: a.area });
-      dotLayer.append(g);
-    }
-    world.append(dotLayer);
-
-    // A name with a dot on it goes just under the dot.
-    const dotR = new Map(dots.map((d) => [key(d.area), d.r]));
-    for (const l of labels) l.dotR = dotR.get(key(l.name)) || 0;
-    // Keep dots, labels and lines the same size on screen at any zoom.
-    function apply() {
-      world.setAttribute('transform', `translate(${view.x} ${view.y}) scale(${view.k})`);
-      const ctm = svg.getScreenCTM();
-      const unit = (ctm && ctm.a ? 1 / ctm.a : BOUNDS.h / 800) / view.k; // map units per screen pixel
-      svg.style.setProperty('--u', unit);
-      for (const d of dots) d.g.setAttribute('transform', `translate(${d.x} ${d.y}) scale(${unit})`);
-      for (const l of labels) {
-        const px = l.area > 6e6 ? 13 : l.area > 1.2e6 ? 11.5 : 10.5;
-        const minK = l.area > 6e6 ? 0 : l.area > 2e6 ? 1.2 : l.area > 0.6e6 ? 1.7 : 2.4;
-        l.t.setAttribute('font-size', px * unit);
-        l.t.setAttribute('y', l.y + (l.dotR ? (l.dotR + 13) * unit : 0));
-        l.t.style.display = view.k >= minK || l.dotR ? '' : 'none';
+    tools() {
+      const bar = document.createElement('div');
+      bar.className = 'npm-tools';
+      const btn = (text, title, fn) => { const b = document.createElement('button'); b.className = 'npm-btn'; b.textContent = text; b.title = title; b.onclick = fn; bar.append(b); return b; };
+      btn('+', 'Zoom in', () => this.zoomAt(this.w / 2, this.h / 2, 1.6));
+      btn('−', 'Zoom out', () => this.zoomAt(this.w / 2, this.h / 2, 1 / 1.6));
+      btn('Los Santos', 'Zoom to the city', () => this.fit(-2100, -3500, 1700, 700));
+      btn('Blaine County', 'Sandy Shores, Grapeseed and around', () => this.fit(-500, 2300, 3700, 5300));
+      btn('Paleto', 'Paleto Bay', () => this.fit(-1200, 5600, 1000, 7000));
+      btn('Whole map', 'Show everything', () => this.fitAll());
+      const placesBtn = btn('Places ▾', 'Choose which places show', () => { menu.hidden = !menu.hidden; });
+      placesBtn.classList.add('npm-places-btn');
+      const menu = document.createElement('div');
+      menu.className = 'npm-places';
+      menu.hidden = true;
+      for (const [k, name] of Object.entries(POI_NAMES)) {
+        const lab = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = true;
+        cb.onchange = () => { cb.checked ? this.hidden.delete(k) : this.hidden.add(k); this.draw(); };
+        const sw = document.createElement('span');
+        sw.className = 'npm-sw'; sw.style.background = POI_STYLE[k][0]; sw.textContent = POI_STYLE[k][1];
+        lab.append(cb, sw, ' ' + name);
+        menu.append(lab);
       }
-      svg.style.setProperty('--stroke', unit);
+      bar.append(menu);
+      this.el.append(bar);
+      const hint = document.createElement('div');
+      hint.className = 'npm-hint';
+      hint.textContent = 'Scroll or double-click to zoom · drag to move · zoom in for streets and places';
+      this.el.append(hint);
     }
-    apply();
-    new ResizeObserver(apply).observe(svg);
 
-    const toSvg = (cx, cy) => new DOMPoint(cx, cy).matrixTransform(svg.getScreenCTM().inverse());
-    const zoomAt = (p, factor) => {
-      const k = Math.max(1, Math.min(14, view.k * factor));
-      view.x = p.x - ((p.x - view.x) * k) / view.k;
-      view.y = p.y - ((p.y - view.y) * k) / view.k;
-      view.k = k;
-      if (k === 1) { view.x = 0; view.y = 0; }
-      apply();
-    };
-    svg.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(toSvg(e.clientX, e.clientY), e.deltaY < 0 ? 1.25 : 1 / 1.25); }, { passive: false });
-    let drag = null;
-    svg.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      drag = { p: toSvg(e.clientX, e.clientY), x: view.x, y: view.y, moved: false, id: e.pointerId, area: e.target.closest('.npm-dot')?.dataset.area || null };
-    });
-    svg.addEventListener('pointermove', (e) => {
-      if (!drag) return;
-      const p = toSvg(e.clientX, e.clientY);
-      if (!drag.moved && Math.hypot(e.movementX, e.movementY) >= 0 && Math.abs(p.x - drag.p.x) + Math.abs(p.y - drag.p.y) > 40 / view.k) { drag.moved = true; try { svg.setPointerCapture(drag.id); } catch {} }
-      if (drag.moved) { view.x = drag.x + (p.x - drag.p.x); view.y = drag.y + (p.y - drag.p.y); apply(); }
-    });
-    svg.addEventListener('pointerup', () => { if (drag && !drag.moved) onSelect(drag.area); drag = null; });
-    svg.addEventListener('dblclick', (e) => { if (e.target.closest('.npm-dot')) return; zoomAt(toSvg(e.clientX, e.clientY), 2); });
+    resize() {
+      const r = this.el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const dpr = window.devicePixelRatio || 1;
+      this.w = r.width; this.h = r.height;
+      this.canvas.width = Math.round(r.width * dpr); this.canvas.height = Math.round(r.height * dpr);
+      this.canvas.style.width = r.width + 'px'; this.canvas.style.height = r.height + 'px';
+      this.dpr = dpr;
+      if (!this.s) this.fit(-2400, -3700, 3900, 7300);
+      this.draw();
+    }
+    minScale() { return Math.min(this.w / 8800, this.h / 12400) * 0.9; }
+    fit(x0, y0, x1, y1) {
+      this.s = Math.min(this.w / (x1 - x0), this.h / (y1 - y0)) * 0.92;
+      this.cx = (x0 + x1) / 2; this.cy = -(y0 + y1) / 2;
+      this.draw();
+    }
+    fitAll() { this.fit(-3600, -3900, 4100, 7300); }
+    toMap(px, py) { return [(px - this.w / 2) / this.s + this.cx, (py - this.h / 2) / this.s + this.cy]; }
+    toScreen(mx, my) { return [(mx - this.cx) * this.s + this.w / 2, (my - this.cy) * this.s + this.h / 2]; }
+    zoomAt(px, py, f) {
+      const [mx, my] = this.toMap(px, py);
+      this.s = Math.max(this.minScale(), Math.min(1.2, this.s * f));
+      this.cx = mx - (px - this.w / 2) / this.s; this.cy = my - (py - this.h / 2) / this.s;
+      this.draw();
+    }
 
-    // Zoom buttons and quick jumps
-    const jump = (x0, y0, x1, y1) => {
-      const k = Math.min(BOUNDS.w / (x1 - x0), BOUNDS.h / (y1 - y0)) * 0.9;
-      const cx = (x0 + x1) / 2, cy = -(y0 + y1) / 2;
-      const mx = BOUNDS.x + BOUNDS.w / 2, my = BOUNDS.y + BOUNDS.h / 2;
-      view.k = Math.max(1, Math.min(14, k));
-      view.x = mx - cx * view.k; view.y = my - cy * view.k;
-      apply();
-    };
-    const btn = (text, title, fn) => { const b = document.createElement('button'); b.className = 'npm-btn'; b.textContent = text; b.title = title; b.onclick = fn; return b; };
-    const center = () => toSvg(svg.getBoundingClientRect().left + svg.clientWidth / 2, svg.getBoundingClientRect().top + svg.clientHeight / 2);
-    const tools = document.createElement('div');
-    tools.className = 'npm-tools';
-    tools.append(
-      btn('+', 'Zoom in', () => zoomAt(center(), 1.5)), btn('−', 'Zoom out', () => zoomAt(center(), 1 / 1.5)),
-      btn('Los Santos', 'Zoom to the city', () => jump(-2100, -3500, 1700, 700)),
-      btn('Blaine County', 'Zoom to Sandy Shores and around', () => jump(-500, 2300, 3600, 5200)),
-      btn('Paleto', 'Zoom to Paleto Bay', () => jump(-1200, 5600, 1000, 7000)),
-      btn('Whole map', 'Show everything', () => { view.x = 0; view.y = 0; view.k = 1; apply(); }));
-    host.append(tools);
-    return off;
+    events() {
+      const c = this.el;
+      c.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const r = this.canvas.getBoundingClientRect();
+        this.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.pow(1.0018, -e.deltaY));
+      }, { passive: false });
+      let drag = null;
+      this.canvas.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        drag = { x: e.clientX, y: e.clientY, cx: this.cx, cy: this.cy, moved: false };
+        this.canvas.setPointerCapture(e.pointerId);
+      });
+      this.canvas.addEventListener('pointermove', (e) => {
+        if (drag) {
+          const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+          if (!drag.moved && Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+          if (drag.moved) { this.cx = drag.cx - dx / this.s; this.cy = drag.cy - dy / this.s; this.draw(); }
+          this.tip.hidden = true;
+          return;
+        }
+        this.hover(e);
+      });
+      this.canvas.addEventListener('pointerup', (e) => {
+        if (drag && !drag.moved) {
+          // A click on the map (not a dot): pick the area under it, or clear.
+          const r = this.canvas.getBoundingClientRect();
+          const z = this.zoneAt(e.clientX - r.left, e.clientY - r.top);
+          const g = z && this.groups.find((a) => key(a.area) === key(z.name));
+          this.onSelect(g ? g.area : null);
+        }
+        drag = null;
+      });
+      this.canvas.addEventListener('pointerleave', () => { this.tip.hidden = true; });
+      this.canvas.addEventListener('dblclick', (e) => { const r = this.canvas.getBoundingClientRect(); this.zoomAt(e.clientX - r.left, e.clientY - r.top, 2); });
+    }
+
+    zoneAt(px, py) {
+      if (!P) return null;
+      const ctx = this.canvas.getContext('2d');
+      const { s, dpr } = this;
+      ctx.save();
+      ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.w / 2 - this.cx * s), dpr * (this.h / 2 - this.cy * s));
+      let hit = null;
+      for (const z of P.zones) if (ctx.isPointInPath(z.path, px * dpr, py * dpr)) { if (!hit || z.z.area < hit.area) hit = z.z; }
+      ctx.restore();
+      return hit;
+    }
+    hover(e) {
+      if (!data) return;
+      const r = this.canvas.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      let text = '';
+      if (this.s >= 0.33) {
+        for (const p of data.pois) {
+          if (this.hidden.has(p[0])) continue;
+          const [sx, sy] = this.toScreen(p[2], -p[3]);
+          if (Math.abs(sx - px) < 9 && Math.abs(sy - py) < 9) { text = p[1]; break; }
+        }
+      }
+      if (!text) { const z = this.zoneAt(px, py); if (z) text = z.name; }
+      this.tip.hidden = !text;
+      if (text) { this.tip.textContent = text; this.tip.style.transform = `translate(${px + 14}px, ${py + 12}px)`; }
+    }
+
+    setGroups(groups, selected, onSelect) {
+      this.groups = groups; this.selected = selected; this.onSelect = onSelect;
+      this.renderDots();
+      this.draw();
+    }
+    // Streamer dots are HTML on top of the canvas (easy to click and hover).
+    renderDots() {
+      this.dotsEl.textContent = '';
+      this.dots = [];
+      for (const g of [...this.groups].sort((a, b) => a.people.length - b.people.length)) {
+        const pos = place(g.area, g.street);
+        if (!pos) continue;
+        const n = g.people.length;
+        const d = document.createElement('button');
+        d.className = 'npm-dot' + (this.selected === g.area ? ' sel' : '') + (g.street ? '' : ' area');
+        const size = Math.round(20 + 7 * Math.sqrt(n));
+        d.style.width = d.style.height = size + 'px';
+        d.style.marginLeft = d.style.marginTop = -size / 2 + 'px';
+        d.textContent = n;
+        d.title = `${g.street ? g.street + ', ' : ''}${g.area}\n${g.people.map((x) => x.name + (x.char ? ' (' + x.char + ')' : '')).join('\n')}`;
+        d.onclick = (e) => { e.stopPropagation(); this.onSelect(g.area); };
+        this.dotsEl.append(d);
+        this.dots.push({ d, x: pos[0], y: -pos[1] });
+      }
+    }
+
+    draw() {
+      if (this.raf) return;
+      this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(); });
+    }
+    paint() {
+      if (!P || !this.w) return;
+      const ctx = this.canvas.getContext('2d');
+      const { s, dpr } = this;
+      const px = 1 / s; // one screen pixel, in metres
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = '#0b1d2b';
+      ctx.fillRect(0, 0, this.w, this.h);
+      ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.w / 2 - this.cx * s), dpr * (this.h / 2 - this.cy * s));
+      // visible box (map space) for skipping work off screen
+      const [vx0, vy0] = this.toMap(0, 0), [vx1, vy1] = this.toMap(this.w, this.h);
+      const vis = (x, y, m = 0) => x > vx0 - m && x < vx1 + m && y > vy0 - m && y < vy1 + m;
+
+      // Land with hills
+      const [X0, Y0, X1, Y1] = data.bounds;
+      if (relief?.complete && relief.naturalWidth) {
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(relief, X0, -Y1, X1 - X0, Y1 - Y0);
+      } else { ctx.fillStyle = '#1e2a22'; ctx.fill(P.land); }
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(120,170,150,.45)'; ctx.lineWidth = 1.2 * px; ctx.stroke(P.land);
+
+      // Areas
+      const sel = this.selected && zoneFor(this.selected);
+      for (const z of P.zones) { ctx.fillStyle = z.fill; ctx.fill(z.path); }
+      ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.lineWidth = px;
+      for (const z of P.zones) ctx.stroke(z.path);
+      if (sel) {
+        const zz = P.zones.find((z) => z.z === sel);
+        if (zz) { ctx.fillStyle = 'rgba(145,70,255,.18)'; ctx.fill(zz.path); ctx.strokeStyle = '#9b6bff'; ctx.lineWidth = 2 * px; ctx.stroke(zz.path); }
+      }
+
+      // Roads: more of them as you zoom in. Up close they're drawn at their real
+      // width, so the separate lanes of a freeway read as one road.
+      const w = (minPx, metres) => Math.max(minPx * px, metres);
+      const road = (path, color, width) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke(path); };
+      if (s >= 0.22) road(P.dirt, 'rgba(176,150,105,.5)', w(s >= 0.6 ? 1.2 : 0.8, 4));
+      // outlines first, then all the road surfaces on top, so joins are clean
+      if (s >= 0.4) {
+        if (s >= 0.14) road(P.minor, '#161b18', w(2.6, 11));
+        road(P.major, '#161b18', w(3.4, 15));
+      }
+      road(P.freeway, 'rgba(60,40,10,.75)', w(s >= 0.5 ? 5.5 : 3.5, 30));
+      const surface = s >= 0.4 ? '#a9b0ab' : null;
+      if (s >= 0.14) road(P.minor, surface || 'rgba(200,208,204,.55)', w(s >= 0.4 ? 1.2 : 0.8, 7.5));
+      road(P.major, surface || 'rgba(236,236,232,.75)', w(s >= 0.3 ? 1.7 : 1, 11));
+      if (s >= 0.12) {
+        ctx.setLineDash([5 * px, 4 * px]);
+        road(P.rails, 'rgba(200,170,140,.7)', 1.3 * px);
+        ctx.setLineDash([]);
+      }
+      road(P.freeway, '#e0aa4a', w(s >= 0.5 ? 3.5 : 2, 22));
+
+      // Text and icons in screen pixels from here on
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const taken = []; // label boxes already drawn, to avoid overlaps
+      const free = (x0, y0, x1, y1) => {
+        for (const b of taken) if (x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1]) return false;
+        taken.push([x0, y0, x1, y1]);
+        return true;
+      };
+      for (const d of this.dots || []) { const [x, y] = this.toScreen(d.x, d.y); taken.push([x - 16, y - 16, x + 16, y + 16]); }
+
+      // Places
+      if (s >= 0.33) {
+        ctx.font = '11px "Segoe UI Symbol", "Segoe UI", sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        for (const p of data.pois) {
+          if (this.hidden.has(p[0]) || !vis(p[2], -p[3], 50)) continue;
+          const [x, y] = this.toScreen(p[2], -p[3]);
+          const [color, glyph] = POI_STYLE[p[0]] || ['#888', '●'];
+          ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2);
+          ctx.fillStyle = color; ctx.fill();
+          ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.stroke();
+          ctx.fillStyle = '#fff'; ctx.fillText(glyph, x, y + 0.5);
+          taken.push([x - 9, y - 9, x + 9, y + 9]);
+          if (s >= 0.9) {
+            ctx.font = '600 10.5px "Segoe UI", sans-serif';
+            const w = ctx.measureText(p[1]).width;
+            if (free(x + 10, y - 7, x + 14 + w, y + 7)) {
+              ctx.textAlign = 'left';
+              ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,12,10,.85)'; ctx.strokeText(p[1], x + 12, y);
+              ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fillText(p[1], x + 12, y);
+              ctx.textAlign = 'center';
+            }
+            ctx.font = '11px "Segoe UI Symbol", "Segoe UI", sans-serif';
+          }
+        }
+      }
+
+      // Area names (big ones first; small ones as you zoom in)
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const zones = [...data.zones].sort((a, b) => b.area - a.area);
+      for (const z of zones) {
+        const need = z.area > 6e6 ? 0 : z.area > 2e6 ? 0.1 : z.area > 0.6e6 ? 0.15 : 0.24;
+        if (s < need || !vis(z.x, -z.y, 300)) continue;
+        const size = z.area > 6e6 ? 13 : z.area > 1.2e6 ? 12 : 11;
+        ctx.font = `700 ${size}px "Segoe UI", sans-serif`;
+        const t = z.water ? z.name : z.name.toUpperCase();
+        const w = ctx.measureText(t).width + (z.water ? 0 : t.length * 0.8);
+        let [x, y] = this.toScreen(z.x, -z.y);
+        const dot = (this.dots || []).find((d) => Math.abs(d.x - z.x) < 1 && Math.abs(d.y + z.y) < 1);
+        if (dot) y += 24;
+        if (!free(x - w / 2, y - size / 2 - 2, x + w / 2, y + size / 2 + 2)) continue;
+        if (!z.water) ctx.letterSpacing = '0.8px';
+        ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(8,12,10,.85)'; ctx.strokeText(t, x, y);
+        ctx.fillStyle = z.water ? 'rgba(150,200,235,.85)' : 'rgba(255,255,255,.78)'; ctx.fillText(t, x, y);
+        ctx.letterSpacing = '0px';
+      }
+
+      // Street names along the streets
+      if (s >= 0.55) {
+        ctx.font = `600 ${s >= 1.2 ? 11.5 : 10.5}px "Segoe UI", sans-serif`;
+        for (const st of data.streets) {
+          for (const a of st.a) {
+            if (!vis(a[0], a[1], 200)) continue;
+            const [x, y] = this.toScreen(a[0], a[1]);
+            const w = ctx.measureText(st.n).width;
+            const ang = (a[2] * Math.PI) / 180;
+            const hw = (Math.abs(Math.cos(ang)) * w + Math.abs(Math.sin(ang)) * 12) / 2;
+            const hh = (Math.abs(Math.sin(ang)) * w + Math.abs(Math.cos(ang)) * 12) / 2;
+            if (!free(x - hw, y - hh, x + hw, y + hh)) continue;
+            ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+            ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(14,18,16,.9)'; ctx.strokeText(st.n, 0, 0);
+            ctx.fillStyle = 'rgba(235,235,225,.92)'; ctx.fillText(st.n, 0, 0);
+            ctx.restore();
+          }
+        }
+      }
+
+      // Move the streamer dots
+      for (const d of this.dots || []) {
+        const [x, y] = this.toScreen(d.x, d.y);
+        d.d.style.transform = `translate(${x}px, ${y}px)`;
+        d.d.style.display = x < -40 || y < -40 || x > this.w + 40 || y > this.h + 40 ? 'none' : '';
+      }
+    }
+  }
+
+  // Shows the map in `host`. groups: [{ area, street, people }]. Returns the
+  // groups that couldn't be placed.
+  async function draw(host, groups, { selected, onSelect }) {
+    try { await load(); } catch {
+      host.textContent = "Couldn't load the map.";
+      return [];
+    }
+    if (!view) view = new MapView();
+    if (view.el.parentNode !== host) host.append(view.el);
+    view.setGroups(groups, selected, onSelect);
+    requestAnimationFrame(() => view.resize());
+    return groups.filter((g) => !place(g.area, g.street));
   }
 
   window.NPMap = { draw, place, load };

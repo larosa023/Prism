@@ -2574,30 +2574,33 @@
     }
 
     // ---- Live map: a dot for each area with streamers in it ------------------
-    const mapView = { x: 0, y: 0, k: 1 };
     let mapSel = null;
     function renderMap(body, L, added) {
       const byArea = new Map();
+      const spots = new Map(); // area + street -> people (one dot each)
       let unknown = 0;
       for (const x of L) {
         const l = locations.get(x.login);
         if (!l?.area) { unknown++; continue; }
         if (!byArea.has(l.area)) byArea.set(l.area, { area: l.area, region: l.region, people: [] });
         byArea.get(l.area).people.push(x);
+        const k = l.area + '|' + (l.street || '');
+        if (!spots.has(k)) spots.set(k, { area: l.area, street: l.street || null, people: [] });
+        spots.get(k).people.push(x);
       }
       const areas = [...byArea.values()];
       if (mapSel && !byArea.has(mapSel)) mapSel = null;
-      const host = h('div', { class: 'npm-map' });
+      const host = h('div', { class: 'npm-host' });
       const side = h('div', { class: 'npm-side' });
       const wrap = h('div', { class: 'npm' }, host, side);
       body.append(h('div', { class: 'rp-locstatus', id: 'rp-locstatus', text: locText() }), wrap);
-      const drawn = window.NPMap.draw(host, areas, { view: mapView, selected: mapSel, onSelect: (a) => { mapSel = a; render(); } });
-      drawn.then(() => host.append(h('div', { class: 'npm-hint', text: 'Scroll or double-click to zoom · drag to move' })));
+      const drawn = window.NPMap.draw(host, [...spots.values()], { selected: mapSel, onSelect: (a) => { mapSel = a; render(); } });
 
       const person = (x) => h('div', { class: 'rp-a-who' + (added.has(x.login) ? ' added' : ''), title: x.title, onclick: () => {
         if (!added.has(x.login)) { addStream({ platform: 'twitch', id: x.login, label: x.name }); toast(`Added ${x.name} to multi-view.`); render(); }
       } }, x.avatar ? h('img', { src: x.avatar, alt: '' }) : h('span', { class: 'ph' }),
-        h('span', { class: 'n', text: x.name }), x.char ? h('span', { class: 'c', text: x.char }) : null, h('span', { class: 'v', text: fmtViewers(x.viewers) }));
+        h('span', { class: 'n', text: x.name }), x.char ? h('span', { class: 'c', text: x.char }) : null,
+        h('span', { class: 'v', text: locations.get(x.login)?.street || fmtViewers(x.viewers) }));
       if (mapSel) {
         const a = byArea.get(mapSel);
         side.append(h('div', { class: 'rp-a-top' }, h('b', { text: a.area }), h('span', { class: 'muted small', text: `${a.people.length} here` })),
@@ -2608,9 +2611,9 @@
       } else {
         const located = areas.reduce((n, a) => n + a.people.length, 0);
         side.append(h('b', { text: located ? `${located} streamers in ${areas.length} areas` : 'Reading where everyone is…' }),
-          h('div', { class: 'muted small', text: (unknown ? `${unknown} more with their HUD hidden. ` : '') + 'Click a dot to see who is there.' }));
+          h('div', { class: 'muted small', text: (unknown ? `${unknown} more with their HUD hidden. ` : '') + 'Click a dot or an area to see who is there. Streamers whose street could be read sit on that street.' }));
         const top = h('div', { class: 'npm-top' });
-        for (const a of [...areas].sort((p, q) => q.people.length - p.people.length).slice(0, 14)) {
+        for (const a of [...areas].sort((p, q) => q.people.length - p.people.length).slice(0, 16)) {
           top.append(h('button', { class: 'npm-row', onclick: () => { mapSel = a.area; render(); } },
             h('span', { text: a.area }), h('b', { text: String(a.people.length) })));
         }

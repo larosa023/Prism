@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.10.2',
+    date: 'Nov 10, 2026',
+    items: [
+      'The NoPixel map is much more detailed: hills and mountains, street names along the roads, railways, and over 140 places (police stations, hospitals, banks, 24/7s, gas stations, Ammu-Nation, clothing, barbers, tattoo shops, mechanics, bars and more), all from GTA V\'s game data. Turn kinds of places on or off with Places ▾.',
+      'More shows the closer you zoom: small roads, dirt tracks, place names and street names. Up close, roads are drawn at their real width. Hover anything to see its name, or click an area to see who\'s there.',
+      'Streamers are placed on their street, not just their area: the street is read from their HUD too. Dots with a dashed edge are ones where only the area could be read.',
+      'Much faster: the map is drawn once and reused, and moving or zooming redraws only what changed, so it stays smooth.'
+    ]
+  },
+  {
     version: '0.10.1',
     date: 'Nov 10, 2026',
     items: [

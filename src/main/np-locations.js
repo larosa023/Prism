@@ -44,6 +44,28 @@ function similarity(a, b) {
 }
 
 // Pick the GTA area a line of OCR text most likely is.
+// Street names (from the game's road network), for placing streamers on the
+// right street within their area.
+const STREETS = (() => { try { return require('./np-streets.json').map((n) => ({ name: n, key: norm(n) })).filter((x) => x.key.length >= 4); } catch { return []; } })();
+function matchStreet(lines, zoneKey) {
+  let best = null;
+  for (const raw of lines) {
+    // The HUD puts the street and area on one line ("Vespucci Blvd | Pillbox Hill"),
+    // so try each part on its own too.
+    for (const part of [raw, ...raw.split(/[|/\\,·-]/)]) {
+      let line = norm(part);
+      if (zoneKey) line = line.replace(zoneKey, '');
+      if (line.length < 4) continue;
+      for (const st of STREETS) {
+        let score = similarity(line, st.key);
+        if (line.includes(st.key) && st.key.length >= 7) score = Math.max(score, 0.93);
+        if (score >= (st.key.length <= 6 ? 0.85 : 0.78) && (!best || score > best.score)) best = { name: st.name, score };
+      }
+    }
+  }
+  return best;
+}
+
 function matchZone(lines) {
   let best = null;
   for (const raw of lines) {
@@ -115,7 +137,7 @@ async function locate(login, imgJob) {
     const { data } = await w.recognize(hudImage(img, box));
     const lines = data.text.split('\n').map((l) => l.trim()).filter(Boolean);
     const z = matchZone(lines);
-    if (z) return { area: z.name, region: z.region };
+    if (z) return { area: z.name, region: z.region, street: matchStreet(lines, z.key)?.name || null };
   }
   return { area: null };
 }
@@ -163,7 +185,7 @@ async function pump() {
       round.error = '';
       if (r) {
         // Keep the last known area if this preview couldn't be read.
-        const keep = !r.area && prev?.area ? { area: prev.area, region: prev.region, at: prev.at, stale: true } : { ...r, at: Date.now() };
+        const keep = !r.area && prev?.area ? { area: prev.area, region: prev.region, street: prev.street, at: prev.at, stale: true } : { ...r, at: Date.now() };
         results.set(login, keep);
         send('nopixel:location', { login, ...keep });
       }

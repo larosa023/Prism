@@ -782,36 +782,28 @@ body.theater .theater-exit:hover, body.theater.theater-peek .theater-exit { opac
 
 /* ---- NoPixel live map ---------------------------------------------------- */
 .npm { display: flex; gap: 14px; height: calc(100vh - 230px); min-height: 420px; margin-top: 8px; }
-.npm-map { position: relative; flex: 1; min-width: 0; border-radius: 12px; overflow: hidden; background: #0b1d2b; border: 1px solid var(--line); }
-.npm-svg { width: 100%; height: 100%; display: block; cursor: grab; user-select: none; }
-.npm-svg:active { cursor: grabbing; }
-.npm-svg path { vector-effect: non-scaling-stroke; }
-.npm-land { fill: #1c2620; stroke: #3f5a4a; stroke-width: 1.5; }
-.npm-zone { stroke: rgba(255,255,255,.09); stroke-width: 1; }
-.npm-zone.r-city { fill: rgba(150,120,200,.10); }
-.npm-zone.r-hills { fill: rgba(110,160,120,.08); }
-.npm-zone.r-blaine { fill: rgba(200,170,100,.08); }
-.npm-zone.r-north { fill: rgba(90,160,170,.09); }
-.npm-zone:hover { fill: rgba(255,255,255,.07); }
-.npm-zone.sel { fill: rgba(145,70,255,.22); stroke: var(--accent); stroke-width: 2; }
-.npm-road { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.npm-road.dirt { stroke: rgba(170,150,110,.30); stroke-width: .7; }
-.npm-road.minor { stroke: rgba(205,215,210,.34); stroke-width: .8; }
-.npm-road.major { stroke: rgba(230,230,230,.6); stroke-width: 1.4; }
-.npm-road.freeway { stroke: #d7a548; stroke-width: 2; opacity: .85; }
-.npm-label { fill: rgba(255,255,255,.62); font-weight: 600; paint-order: stroke; stroke: rgba(10,16,14,.85); stroke-width: calc(var(--u) * 3px); pointer-events: none; }
-.npm-label.water { fill: rgba(140,190,230,.7); font-style: italic; }
-.npm-dot { cursor: pointer; }
-.npm-core { fill: var(--accent); stroke: #fff; stroke-width: 1.5; }
-.npm-halo { fill: var(--accent); opacity: .25; animation: npm-pulse 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-.npm-dot.sel .npm-core { fill: #fff; stroke: var(--accent); }
-.npm-dot.sel .npm-n { fill: var(--accent); }
-.npm-n { fill: #fff; font-weight: 800; pointer-events: none; }
-@keyframes npm-pulse { 0%, 100% { transform: scale(1); opacity: .28; } 50% { transform: scale(1.4); opacity: .06; } }
+.npm-host { position: relative; flex: 1; min-width: 0; }
+.npm-map { position: absolute; inset: 0; border-radius: 12px; overflow: hidden; background: #0b1d2b; border: 1px solid var(--line); cursor: grab; }
+.npm-map:active { cursor: grabbing; }
+.npm-map canvas { position: absolute; inset: 0; display: block; }
+.npm-dots { position: absolute; inset: 0; pointer-events: none; }
+.npm-dot {
+  position: absolute; left: 0; top: 0; pointer-events: auto; display: grid; place-items: center; padding: 0; cursor: pointer;
+  border-radius: 50%; border: 2px solid #fff; background: var(--accent); color: #fff; font: 800 12px/1 "Segoe UI", sans-serif;
+  box-shadow: 0 0 0 5px rgba(145,70,255,.25), 0 2px 8px rgba(0,0,0,.6); will-change: transform;
+}
+.npm-dot.area { border-style: dashed; }
+.npm-dot:hover { box-shadow: 0 0 0 7px rgba(145,70,255,.4), 0 2px 8px rgba(0,0,0,.6); z-index: 2; }
+.npm-dot.sel { background: #fff; color: var(--accent); border-color: var(--accent); z-index: 3; }
+.npm-tip { position: absolute; left: 0; top: 0; pointer-events: none; padding: 3px 8px; border-radius: 6px; background: rgba(8,12,16,.92); border: 1px solid rgba(255,255,255,.15); font-size: 12px; white-space: nowrap; z-index: 4; }
 .npm-hint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: rgba(255,255,255,.5); pointer-events: none; }
-.npm-tools { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
-.npm-btn { height: 28px; min-width: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,.14); background: rgba(8,14,20,.8); color: var(--text); cursor: pointer; font-size: 12px; }
+.npm-tools { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; z-index: 5; }
+.npm-btn { height: 28px; min-width: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,.14); background: rgba(8,14,20,.85); color: var(--text); cursor: pointer; font-size: 12px; }
 .npm-btn:hover { border-color: var(--accent); }
+.npm-places-btn { margin-left: auto; }
+.npm-places { position: absolute; top: 34px; right: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 10px 12px; border-radius: 10px; background: rgba(8,14,20,.95); border: 1px solid var(--line); font-size: 12px; }
+.npm-places label { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.npm-sw { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; color: #fff; font-size: 9px; }
 .npm-side { width: 300px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
 .npm-watch { align-self: flex-start; }
 .npm-top { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
