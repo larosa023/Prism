@@ -1,6 +1,15 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.10.3',
+    date: 'Nov 10, 2026',
+    items: [
+      'NoPixel map, zoomed out: every road and dirt track shows (thin), area names fill in as space allows, places show as small colored dots (hover for the name), and the area borders are clearer.',
+      'No more flash when you click a dot or an area on the map.',
+      'Removed the stray roads in the bottom corner of the map (they belonged to North Yankton).'
+    ]
+  },
+  {
     version: '0.10.2',
     date: 'Nov 10, 2026',
     items: [

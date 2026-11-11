@@ -93,8 +93,13 @@ from collections import defaultdict
 cls_of = lambda s: 'freeway' if s[5] else 'dirt' if (s[6] or s[7]) else 'major' if (s[8] >= 3 or s[9] not in ('0', None)) else 'minor'
 lines = defaultdict(list)
 adj = defaultdict(lambda: defaultdict(set))
+def on_island(x, y):  # leaves out North Yankton and Cayo Perico
+    if not (X0 < x < X1 and Y0 < y < Y1): return False
+    i, j = ij(x, y)
+    return not skip[i, j]
 for s in D['segs']:
     if s[4] or abs(s[0] - s[2]) + abs(s[1] - s[3]) > 600: continue
+    if not (on_island(s[0], s[1]) and on_island(s[2], s[3])): continue
     a = (round(s[0]), round(s[1])); b = (round(s[2]), round(s[3]))
     if a == b: continue
     c = cls_of(s)

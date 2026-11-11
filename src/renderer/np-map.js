@@ -141,14 +141,19 @@
 
     resize() {
       const r = this.el.getBoundingClientRect();
-      if (!r.width || !r.height) return;
+      if (!r.width || !r.height) return; // detached for a moment while the tab redraws
       const dpr = window.devicePixelRatio || 1;
-      this.w = r.width; this.h = r.height;
-      this.canvas.width = Math.round(r.width * dpr); this.canvas.height = Math.round(r.height * dpr);
-      this.canvas.style.width = r.width + 'px'; this.canvas.style.height = r.height + 'px';
-      this.dpr = dpr;
-      if (!this.s) this.fit(-2400, -3700, 3900, 7300);
-      this.draw();
+      const cw = Math.round(r.width * dpr), ch = Math.round(r.height * dpr);
+      this.w = r.width; this.h = r.height; this.dpr = dpr;
+      // Setting a canvas's size wipes it, so only do that when the size really
+      // changed, and redraw straight away (no blank frame = no flash).
+      if (this.canvas.width !== cw || this.canvas.height !== ch) {
+        this.canvas.width = cw; this.canvas.height = ch;
+        this.canvas.style.width = r.width + 'px'; this.canvas.style.height = r.height + 'px';
+        if (!this.s) this.fit(-2400, -3700, 3900, 7300);
+        cancelAnimationFrame(this.raf); this.raf = 0;
+        this.paint();
+      }
     }
     minScale() { return Math.min(this.w / 8800, this.h / 12400) * 0.9; }
     fit(x0, y0, x1, y1) {
@@ -219,11 +224,12 @@
       const r = this.canvas.getBoundingClientRect();
       const px = e.clientX - r.left, py = e.clientY - r.top;
       let text = '';
-      if (this.s >= 0.33) {
+      if (this.s >= 0.06) {
+        const hit = this.s >= 0.33 ? 9 : 5;
         for (const p of data.pois) {
           if (this.hidden.has(p[0])) continue;
           const [sx, sy] = this.toScreen(p[2], -p[3]);
-          if (Math.abs(sx - px) < 9 && Math.abs(sy - py) < 9) { text = p[1]; break; }
+          if (Math.abs(sx - px) < hit && Math.abs(sy - py) < hit) { text = p[1]; break; }
         }
       }
       if (!text) { const z = this.zoneAt(px, py); if (z) text = z.name; }
@@ -286,7 +292,7 @@
       // Areas
       const sel = this.selected && zoneFor(this.selected);
       for (const z of P.zones) { ctx.fillStyle = z.fill; ctx.fill(z.path); }
-      ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.lineWidth = px;
+      ctx.strokeStyle = s < 0.2 ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.10)'; ctx.lineWidth = px;
       for (const z of P.zones) ctx.stroke(z.path);
       if (sel) {
         const zz = P.zones.find((z) => z.z === sel);
@@ -297,7 +303,7 @@
       // width, so the separate lanes of a freeway read as one road.
       const w = (minPx, metres) => Math.max(minPx * px, metres);
       const road = (path, color, width) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke(path); };
-      if (s >= 0.22) road(P.dirt, 'rgba(176,150,105,.5)', w(s >= 0.6 ? 1.2 : 0.8, 4));
+      road(P.dirt, s >= 0.22 ? 'rgba(176,150,105,.5)' : 'rgba(176,150,105,.32)', w(s >= 0.6 ? 1.2 : s >= 0.22 ? 0.8 : 0.5, 4));
       // outlines first, then all the road surfaces on top, so joins are clean
       if (s >= 0.4) {
         if (s >= 0.14) road(P.minor, '#161b18', w(2.6, 11));
@@ -305,10 +311,10 @@
       }
       road(P.freeway, 'rgba(60,40,10,.75)', w(s >= 0.5 ? 5.5 : 3.5, 30));
       const surface = s >= 0.4 ? '#a9b0ab' : null;
-      if (s >= 0.14) road(P.minor, surface || 'rgba(200,208,204,.55)', w(s >= 0.4 ? 1.2 : 0.8, 7.5));
+      road(P.minor, surface || (s >= 0.14 ? 'rgba(200,208,204,.55)' : 'rgba(200,208,204,.38)'), w(s >= 0.4 ? 1.2 : s >= 0.14 ? 0.8 : 0.55, 7.5));
       road(P.major, surface || 'rgba(236,236,232,.75)', w(s >= 0.3 ? 1.7 : 1, 11));
-      if (s >= 0.12) {
-        ctx.setLineDash([5 * px, 4 * px]);
+      {
+        ctx.setLineDash(s >= 0.12 ? [5 * px, 4 * px] : [3 * px, 2 * px]);
         road(P.rails, 'rgba(200,170,140,.7)', 1.3 * px);
         ctx.setLineDash([]);
       }
@@ -324,7 +330,17 @@
       };
       for (const d of this.dots || []) { const [x, y] = this.toScreen(d.x, d.y); taken.push([x - 16, y - 16, x + 16, y + 16]); }
 
-      // Places
+      // Places: small colored dots when zoomed out, badges closer in
+      if (s < 0.33) {
+        const r = s < 0.12 ? 2.2 : 3;
+        for (const p of data.pois) {
+          if (this.hidden.has(p[0]) || !vis(p[2], -p[3], 20)) continue;
+          const [x, y] = this.toScreen(p[2], -p[3]);
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fillStyle = (POI_STYLE[p[0]] || ['#888'])[0]; ctx.fill();
+          ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.stroke();
+        }
+      }
       if (s >= 0.33) {
         ctx.font = '11px "Segoe UI Symbol", "Segoe UI", sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -355,9 +371,10 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const zones = [...data.zones].sort((a, b) => b.area - a.area);
       for (const z of zones) {
-        const need = z.area > 6e6 ? 0 : z.area > 2e6 ? 0.1 : z.area > 0.6e6 ? 0.15 : 0.24;
-        if (s < need || !vis(z.x, -z.y, 300)) continue;
-        const size = z.area > 6e6 ? 13 : z.area > 1.2e6 ? 12 : 11;
+        // show a name once its area is big enough on screen to hold it
+        const onScreen = Math.sqrt(z.area) * s;
+        if (onScreen < (z.water ? 30 : 42) || !vis(z.x, -z.y, 300)) continue;
+        const size = onScreen > 150 ? 12.5 : onScreen > 80 ? 11.5 : 10.5;
         ctx.font = `700 ${size}px "Segoe UI", sans-serif`;
         const t = z.water ? z.name : z.name.toUpperCase();
         const w = ctx.measureText(t).width + (z.water ? 0 : t.length * 0.8);
@@ -369,6 +386,23 @@
         ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(8,12,10,.85)'; ctx.strokeText(t, x, y);
         ctx.fillStyle = z.water ? 'rgba(150,200,235,.85)' : 'rgba(255,255,255,.78)'; ctx.fillText(t, x, y);
         ctx.letterSpacing = '0px';
+      }
+
+      // Big region names when zoomed out
+      if (s < 0.2) {
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const a = Math.min(1, (0.2 - s) / 0.06);
+        for (const [t, x, y, size, color] of [['LOS SANTOS', 250, -1150, 22, '255,255,255'], ['BLAINE COUNTY', 1200, 3200, 20, '255,255,255'],
+          ['PACIFIC OCEAN', -3300, 300, 16, '150,200,235'], ['SAN ANDREAS', 3600, -3300, 14, '150,200,235']]) {
+          const [sx, sy] = this.toScreen(x, -y);
+          ctx.font = `800 ${size}px "Segoe UI", sans-serif`;
+          ctx.letterSpacing = '4px';
+          const tw = ctx.measureText(t).width;
+          if (!free(sx - tw / 2, sy - size / 2, sx + tw / 2, sy + size / 2)) { ctx.letterSpacing = '0px'; continue; }
+          ctx.fillStyle = `rgba(${color},${0.16 * a})`;
+          ctx.fillText(t, sx, sy);
+          ctx.letterSpacing = '0px';
+        }
       }
 
       // Street names along the streets
@@ -403,14 +437,17 @@
   // Shows the map in `host`. groups: [{ area, street, people }]. Returns the
   // groups that couldn't be placed.
   async function draw(host, groups, { selected, onSelect }) {
-    try { await load(); } catch {
-      host.textContent = "Couldn't load the map.";
-      return [];
+    // Once loaded, attach straight away (no waiting), so the map never blinks.
+    if (!data) {
+      try { await load(); } catch {
+        host.textContent = "Couldn't load the map.";
+        return [];
+      }
     }
     if (!view) view = new MapView();
     if (view.el.parentNode !== host) host.append(view.el);
+    view.resize();
     view.setGroups(groups, selected, onSelect);
-    requestAnimationFrame(() => view.resize());
     return groups.filter((g) => !place(g.area, g.street));
   }
 
