@@ -325,19 +325,29 @@ for c, lines in road_lines.items():
     g = np.zeros((HB, WB), bool)
     for l in lines: markb(g, l)
     road_px |= ndimage.binary_dilation(g, structure=morphology.disk(max(1, int(half[c] / RB))))
-urban_names = set(cover['city'][0]) | {'Sandy Shores', 'Paleto Bay', 'Grapeseed', 'Harmony', 'Vinewood Hills', 'Richman', 'Richman Glen', 'Pacific Bluffs', 'Chumash', 'Banham Canyon', 'Tataviam Mountains', 'Stab City', 'East Vinewood', 'Murrieta Heights'}
-urban = np.zeros((H, W), bool)
-for nm in urban_names:
-    if nm in order: urban |= owner == order.index(nm)
-urban_b = np.kron(urban, np.ones((int(R / RB) + 0, int(R / RB) + 0), bool)) if R % RB == 0 else None
+# built-up: where the streets are dense
+streets_r = np.zeros((H, W))
+for c in ('minor', 'major'):
+    for l in road_lines.get(c, []):
+        for (x0, y0), (x1, y1) in zip(l[:-1], l[1:]):
+            n = int(max(abs(x1 - x0), abs(y1 - y0)) / R) + 1
+            i, j = ij(np.linspace(x0, x1, n), np.linspace(y0, y1, n))
+            ok = (i >= 0) & (i < H) & (j >= 0) & (j < W); streets_r[i[ok], j[ok]] = 1
+dens = ndimage.gaussian_filter(streets_r, 5)
+urban_a = land & (dens > 0.11)
+urban_a = ndimage.binary_closing(urban_a, structure=disk(60)) & land
+urban_a = ndimage.binary_opening(urban_a, structure=disk(40))
+lab_u, nu = ndimage.label(urban_a)
+su = ndimage.sum(np.ones_like(lab_u), lab_u, range(1, nu + 1)) * R * R
+urban_a = np.isin(lab_u, [k + 1 for k, a in enumerate(su) if a > 0.12e6])
 from skimage.transform import resize as _resize
-urban_b = _resize(urban.astype(float), (HB, WB), order=0) > 0.5
+urban_b = _resize(urban_a.astype(float), (HB, WB), order=1) > 0.5
 land_b = _resize(land.astype(float), (HB, WB), order=0) > 0.5
 free_px = ~road_px & urban_b & land_b
 lab_b, nb = ndimage.label(free_px)
 sizes_b = ndimage.sum(np.ones_like(lab_b), lab_b, range(1, nb + 1)) * RB * RB
 keep = np.zeros(nb + 1, bool)
-keep[1:] = (sizes_b > 900) & (sizes_b < 260000)
+keep[1:] = (sizes_b > 600) & (sizes_b < 90000)
 blocks = keep[lab_b]
 blocks = ndimage.binary_erosion(blocks, structure=morphology.disk(1))
 blocks = ndimage.binary_opening(blocks, structure=morphology.disk(1))
@@ -400,8 +410,56 @@ for x, y in pts_of('worldOilJacks.json'):
 for c in oil: pois.append(['oil', 'Oil field', round(c[0] / c[2]), round(c[1] / c[2])])
 pois = [p_ for p_ in pois if X0 < p_[2] < X1 and Y0 < p_[3] < Y1]
 
+
+# ---- Atlas style: land cover shapes for the light map ----------------------
+rng = np.random.default_rng(7)
+def noise(sigma):
+    n = ndimage.gaussian_filter(rng.standard_normal((H, W)), sigma)
+    return n / (n.std() + 1e-9)
+n1, n2, n3 = noise(6), noise(14), noise(3)
+inland_water = ~land & ~ocean & ~skip  # lakes cut out of the land (Alamo Sea, reservoir)
+lab_w, nw = ndimage.label(~land)
+edge_labels = set(np.unique(np.concatenate([lab_w[0], lab_w[-1], lab_w[:, 0], lab_w[:, -1]])))
+lakes = np.isin(lab_w, [k for k in range(1, nw + 1) if k not in edge_labels])
+sea = ~land & ~lakes
+dist_sea = ndimage.distance_transform_edt(sea) * R          # metres from the coast, out to sea
+dist_land_to_sea = ndimage.distance_transform_edt(~sea) * R  # metres inland from the coast
+band1 = sea & (dist_sea < 45 + 25 * n1)
+band2 = sea & (dist_sea < 140 + 60 * n2)
+band3 = sea & (dist_sea < 320 + 120 * n2)
+def zmask(names_, soft=0):
+    m = np.zeros((H, W), bool)
+    for nm in names_:
+        if nm in order: m |= owner == order.index(nm)
+    if soft:  # round off the game's box-shaped zone edges
+        m = ndimage.gaussian_filter(m.astype(float), soft) + 0.18 * n2 > 0.5
+    return m
+desert_z = zmask(cover['desert'][0] + ['Grand Senora Desert', 'Davis Quartz', 'Sandy Shores Airfield'], soft=18)
+beach_z = zmask(['Vespucci Beach', 'Del Perro Beach', 'Procopio Beach', 'Chumash', 'Paleto Cove', 'Pacific Bluffs', 'Banham Canyon', 'North Chumash', 'Paleto Bay', 'Mount Gordo', 'San Chianski Mountain Range', 'Palomino Highlands', 'Tataviam Mountains', 'El Gordo Lighthouse'], soft=6)
+golf_z = zmask(['GWC and Golfing Society'])
+sand = land & ~urban_a & ((desert_z & (n2 > -0.9)) | (beach_z & (dist_land_to_sea < 45 + 25 * n1)) | ((dist_land_to_sea < 18 + 14 * n1) & ~urban_a))
+sand2 = sand & desert_z & (n3 + 0.6 * n2 > 0.9)  # darker sand patches in the desert
+hilly = ndimage.gaussian_filter(np.hypot(gx, gy), 4) > 0.06
+forest_base = land & ~urban_a & ~sand & ~golf_z & ~fg
+# trees on the hills: more the higher and steeper, broken up a little at the edges
+tree = ndimage.gaussian_filter(np.hypot(gx, gy), 3) * 6 + np.clip(hm / 400, 0, 1) + 0.18 * n3 + 0.1 * n1
+forest = forest_base & (tree > 0.55)
+forest = ndimage.binary_opening(forest, structure=disk(20))
+forest2 = forest & ((tree > 0.95) | (shade < 0.36 + 0.1 * n3))
+def poly(mask, tol=8, smooth=1.2):
+    m = ndimage.gaussian_filter(mask.astype(float), smooth) > 0.5
+    return path(padded_contours(m), tol)
+atlas = {'band3': poly(band3, 14, 2), 'band2': poly(band2, 12, 2), 'band1': poly(band1, 10, 1.5), 'lakes': poly(lakes, 8, 1),
+         'urban': poly(urban_a, 8, 1.5), 'sand': poly(sand, 8, 1.2), 'sand2': poly(sand2, 10, 1.5),
+         'forest': poly(forest, 10, 1.5), 'forest2': poly(forest2, 10, 1.5), 'golf': poly(golf_z & land, 8, 1)}
+# grey hill shading for the light map (multiplied over it)
+shade_g = np.clip(0.55 + (shade - 0.5) * 0.9, 0, 1)
+g8 = (shade_g * 255).astype(np.uint8)
+from PIL import Image as _Im
+_Im.fromarray(np.dstack([g8, g8, g8, (land * 255).astype(np.uint8)])).save(shade_png.replace('.webp', '-grey.webp'), 'WEBP', quality=80, method=6)
+
 data = {'land': land_path, 'zones': zones, 'roads': roads_out, 'streets': streets, 'pois': pois, 'rails': rails_path, 'contours': [contour_minor, contour_major],
-        'bounds': [X0, Y0, X1, Y1], 'cell': CELL, 'roadsLo': roads_lo, 'blocks': block_cells, 'rivers': rivers, 'landuse': landuse, 'fields': fields_path}
+        'bounds': [X0, Y0, X1, Y1], 'cell': CELL, 'roadsLo': roads_lo, 'blocks': block_cells, 'rivers': rivers, 'landuse': landuse, 'fields': fields_path, 'atlas': atlas}
 _j.dump({'streets': sorted(street_zone.keys()), 'streetZone': street_zone}, open(streets_json, 'w'), separators=(',', ':'))
 js = '// Generated from GTA V game data (zone bounds and the road network), see\n// scripts/README. Coordinates are game-world metres; y is flipped (north up).\nwindow.NP_MAP_DATA = ' + json.dumps(data, separators=(',', ':')) + ';\n'
 open(out_js, 'w').write(js)

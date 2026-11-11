@@ -6,7 +6,8 @@ NoPixel tab's map) is generated from GTA V game data dumps:
 - zone bounds: `zones.json` from https://github.com/DurtyFree/gta-v-data-dumps
 - road network and street names: `nodes.zip` (vehicle path nodes) from the same repository
 - places: `mloInteriors.json` and `objectslocations/worldGasPumps.json`; railways: `traintracks.json`
-- hills: heights of the road network, smoothed and shaded (`np-map-shade.webp`)
+- hills: heights of the road network, smoothed and shaded (`np-map-shade.webp`, and `np-map-shade-grey.webp` for the light map)
+- light map land cover: sea shallows from distance to the coast; towns from street density; desert, beaches and golf from the game's zones; forest from hill height and steepness, with a little noise to break up straight edges (drawn by style, not tree-by-tree)
 
 The coastline is worked out from where roads and boat routes are, limited by
 the game's ocean zone boxes.

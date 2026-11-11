@@ -41,8 +41,29 @@
     return 'city';
   };
 
+  // ---- Two looks: "Atlas" (light, like the game's own map) and "Dark" ----------
+  const THEMES = {
+    atlas: {
+      sea: '#141a3c', bands: ['#2c5aab', '#5b8fdc', '#9ccaf4'], land: '#a3cfae', sand: '#e9dcb1', sand2: '#dcc791', forest: '#6da87c', forest2: '#56916a',
+      golf: '#bfe4bb', fields: 'rgba(200,215,140,.85)', urban: '#f1f2f4', lakes: '#9ccaf4', rivers: '#8cbcf0', coast: 'rgba(60,110,170,.35)',
+      landuse: { park: 'rgba(110,180,110,.55)', industry: 'rgba(200,205,214,.55)', quarry: 'rgba(205,180,140,.6)', farm: 'rgba(200,215,140,.5)', airport: 'rgba(214,218,226,.6)' },
+      blocks: '#e0e3e9', blockLine: 'rgba(150,160,175,.35)', contour: '40,90,60', zoneLine: 'rgba(40,60,90,.10)', zoneLineFar: 'rgba(40,60,90,.16)',
+      dirt: 'rgba(150,140,115,.55)', minorCase: '#9aa6ba', minor: '#c3cbd8', minorFar: 'rgba(120,135,160,.55)', majorCase: '#6f84aa', major: '#9fb1cf', majorFar: '#7f95ba',
+      fwyCase: '#56709e', fwy: '#7a92bd', rails: '#7b3f8c', label: 'rgba(40,48,60,.85)', halo: 'rgba(255,255,255,.9)', water: 'rgba(40,90,170,.9)',
+      street: 'rgba(30,36,48,.9)', streetHalo: 'rgba(255,255,255,.92)', poiText: 'rgba(20,24,30,.92)', poiHalo: 'rgba(255,255,255,.9)', region: '20,30,60'
+    },
+    dark: {
+      landuse: LANDUSE_FILL, blocks: null, contour: '230,220,180', zoneLine: 'rgba(255,255,255,.10)', zoneLineFar: 'rgba(255,255,255,.16)',
+      dirt: 'rgba(176,150,105,.5)', minorCase: '#161b18', minor: '#a9b0ab', minorFar: 'rgba(200,208,204,.5)', majorCase: '#161b18', major: '#a9b0ab', majorFar: 'rgba(236,236,232,.75)',
+      fwyCase: 'rgba(60,40,10,.75)', fwy: '#e0aa4a', rails: 'rgba(200,170,140,.7)', label: 'rgba(255,255,255,.78)', halo: 'rgba(8,12,10,.85)', water: 'rgba(150,200,235,.85)',
+      street: 'rgba(235,235,225,.92)', streetHalo: 'rgba(14,18,16,.9)', poiText: 'rgba(255,255,255,.9)', poiHalo: 'rgba(8,12,10,.85)', region: '255,255,255'
+    }
+  };
+  const getStyle = () => { try { return localStorage.getItem('prism-np-map-style') || 'atlas'; } catch { return 'atlas'; } };
+  const setStyle = (v) => { try { localStorage.setItem('prism-np-map-style', v); } catch {} };
+
   // ---- Data (loaded the first time the map opens) ----------------------------
-  let data = null, loading = null, P = null, relief = null;
+  let data = null, loading = null, P = null, relief = null, greyRelief = null;
   function load() {
     if (data) return Promise.resolve(data);
     if (!loading) loading = new Promise((resolve, reject) => {
@@ -66,8 +87,12 @@
           lo: Object.fromEntries(Object.entries(data.roadsLo || {}).map(([k, d]) => [k, new Path2D(d)])),
           cells: {}, blockCells: new Map(),
           rails: new Path2D(data.rails), rivers: new Path2D(data.rivers || ''), fields: new Path2D(data.fields || ''),
-          contour: new Path2D(data.contours?.[0] || ''), contourMajor: new Path2D(data.contours?.[1] || '')
+          contour: new Path2D(data.contours?.[0] || ''), contourMajor: new Path2D(data.contours?.[1] || ''),
+          atlas: Object.fromEntries(Object.entries(data.atlas || {}).map(([k, d]) => [k, new Path2D(d)]))
         };
+        greyRelief = new Image();
+        greyRelief.src = 'np-map-shade-grey.webp';
+        greyRelief.onload = () => view?.draw();
         relief = new Image();
         relief.src = 'np-map-shade.webp';
         relief.onload = () => view?.draw();
@@ -135,6 +160,15 @@
       btn('Blaine County', 'Sandy Shores, Grapeseed and around', () => this.fit(-500, 2300, 3700, 5300));
       btn('Paleto', 'Paleto Bay', () => this.fit(-1200, 5600, 1000, 7000));
       btn('Whole map', 'Show everything', () => this.fitAll());
+      this.style = getStyle();
+      const styleBtn = btn(this.style === 'atlas' ? 'Dark map' : 'Light map', 'Switch between the light atlas look and the dark look', () => {
+        this.style = this.style === 'atlas' ? 'dark' : 'atlas';
+        setStyle(this.style);
+        styleBtn.textContent = this.style === 'atlas' ? 'Dark map' : 'Light map';
+        this.el.classList.toggle('atlas', this.style === 'atlas');
+        this.lastMove = 0; this.draw();
+      });
+      this.el.classList.toggle('atlas', this.style === 'atlas');
       // Find a streamer or place on the map
       const find = document.createElement('input');
       find.className = 'npm-find'; find.placeholder = 'Find a streamer, street or place…'; find.spellcheck = false;
@@ -433,15 +467,18 @@
       const ctx = this.canvas.getContext('2d');
       const { s, dpr } = this;
       const px = 1 / s; // one screen pixel, in metres
+      const T = THEMES[this.style] || THEMES.atlas;
+      const atlas = this.style === 'atlas' && P.atlas.band1;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#0b1d2b';
+      ctx.fillStyle = atlas ? T.sea : '#0b1d2b';
       ctx.fillRect(0, 0, this.w, this.h);
       const [X0, Y0, X1, Y1] = data.bounds;
       // Quick frame while moving: the last sharp drawing, moved and scaled.
       const sv = this.snapView;
       if (this.lastMove && sv && s / sv.s > 0.35 && s / sv.s < 3) {
         ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (this.w / 2 - this.cx * s), dpr * (this.h / 2 - this.cy * s));
-        if (relief?.complete && relief.naturalWidth) ctx.drawImage(relief, X0, -Y1, X1 - X0, Y1 - Y0);
+        if (atlas) { ctx.fillStyle = T.land; ctx.fill(P.land, 'evenodd'); }
+        else if (relief?.complete && relief.naturalWidth) ctx.drawImage(relief, X0, -Y1, X1 - X0, Y1 - Y0);
         const k = s / sv.s;
         ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * (this.w / 2 * (1 - k) + (sv.cx - this.cx) * s), dpr * (this.h / 2 * (1 - k) + (sv.cy - this.cy) * s));
         ctx.imageSmoothingQuality = 'low';
@@ -454,47 +491,71 @@
       const [vx0, vy0] = this.toMap(0, 0), [vx1, vy1] = this.toMap(this.w, this.h);
       const vis = (x, y, m = 0) => x > vx0 - m && x < vx1 + m && y > vy0 - m && y < vy1 + m;
 
-      // Land with hills
-      if (relief?.complete && relief.naturalWidth) {
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(relief, X0, -Y1, X1 - X0, Y1 - Y0);
-      } else { ctx.fillStyle = '#1e2a22'; ctx.fill(P.land); }
       ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      ctx.strokeStyle = 'rgba(120,170,150,.45)'; ctx.lineWidth = 1.2 * px; ctx.stroke(P.land);
+      if (atlas) {
+        // Sea: shallows lighten toward the coast
+        const A = P.atlas;
+        for (let i = 0; i < 3; i++) { ctx.fillStyle = T.bands[i]; ctx.fill(A['band' + (3 - i)], 'evenodd'); }
+        // Land cover: grass, sand and desert, forest on the hills, golf, towns
+        ctx.fillStyle = T.land; ctx.fill(P.land, 'evenodd');
+        ctx.fillStyle = T.sand; ctx.fill(A.sand, 'evenodd');
+        ctx.fillStyle = T.sand2; ctx.fill(A.sand2, 'evenodd');
+        ctx.fillStyle = T.forest; ctx.fill(A.forest, 'evenodd');
+        ctx.fillStyle = T.forest2; ctx.fill(A.forest2, 'evenodd');
+        ctx.fillStyle = T.golf; ctx.fill(A.golf, 'evenodd');
+        ctx.fillStyle = T.urban; ctx.fill(A.urban, 'evenodd');
+        ctx.fillStyle = T.lakes; ctx.fill(A.lakes, 'evenodd');
+        // hills: a soft grey shading multiplied over everything
+        if (greyRelief?.complete && greyRelief.naturalWidth) {
+          ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 0.42; ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(greyRelief, X0, -Y1, X1 - X0, Y1 - Y0);
+          ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+        }
+        ctx.strokeStyle = T.coast; ctx.lineWidth = 1.2 * px; ctx.stroke(P.land);
+      } else {
+        // Land with hills
+        if (relief?.complete && relief.naturalWidth) {
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(relief, X0, -Y1, X1 - X0, Y1 - Y0);
+        } else { ctx.fillStyle = '#1e2a22'; ctx.fill(P.land); }
+        ctx.strokeStyle = 'rgba(120,170,150,.45)'; ctx.lineWidth = 1.2 * px; ctx.stroke(P.land);
+      }
 
       // Land use: parks, golf, docks, quarries, farm fields, the airport
       ctx.save();
       ctx.clip(P.land); // keep land use on land (the game's boxes run into the sea)
       for (const [cat, x, y, w2, h2] of data.landuse || []) {
         if (!vis(x + w2 / 2, y + h2 / 2, Math.max(w2, h2))) continue;
-        ctx.fillStyle = LANDUSE_FILL[cat] || 'rgba(255,255,255,.05)';
+        ctx.fillStyle = T.landuse[cat] || 'rgba(255,255,255,.05)';
         ctx.fillRect(x, y, w2, h2);
       }
-      ctx.fillStyle = 'rgba(150,175,80,.28)'; ctx.fill(P.fields);
+      ctx.fillStyle = atlas ? T.fields : 'rgba(150,175,80,.28)'; ctx.fill(P.fields);
       ctx.restore();
 
       // City blocks (the spaces between streets) as you get closer
       if (s >= 0.16) {
         const a = Math.min(1, (s - 0.16) / 0.12);
-        ctx.fillStyle = `rgba(78,84,96,${0.75 * a})`;
+        ctx.globalAlpha = a;
+        ctx.fillStyle = atlas ? T.blocks : 'rgba(78,84,96,.75)';
         this.eachCell('blocks', (p) => ctx.fill(p));
-        if (s >= 0.4) { ctx.strokeStyle = `rgba(160,170,190,${0.25 * a})`; ctx.lineWidth = px; this.eachCell('blocks', (p) => ctx.stroke(p)); }
+        if (s >= 0.4) { ctx.strokeStyle = atlas ? T.blockLine : 'rgba(160,170,190,.25)'; ctx.lineWidth = px; this.eachCell('blocks', (p) => ctx.stroke(p)); }
+        ctx.globalAlpha = 1;
       }
 
       // Rivers and canals
-      ctx.strokeStyle = 'rgba(30,70,100,.9)'; ctx.lineWidth = Math.max(1.4 * px, 16); ctx.stroke(P.rivers);
+      ctx.strokeStyle = atlas ? T.rivers : 'rgba(30,70,100,.9)'; ctx.lineWidth = Math.max(1.4 * px, 16); ctx.stroke(P.rivers);
 
       // Height lines (every 50 m, thicker every 200 m)
       if (s >= 0.1) {
         const a = Math.min(1, (s - 0.1) / 0.15);
-        ctx.strokeStyle = `rgba(230,220,180,${0.10 * a})`; ctx.lineWidth = 0.8 * px; ctx.stroke(P.contour);
-        ctx.strokeStyle = `rgba(230,220,180,${0.2 * a})`; ctx.lineWidth = 1.1 * px; ctx.stroke(P.contourMajor);
+        ctx.strokeStyle = `rgba(${T.contour},${0.10 * a})`; ctx.lineWidth = 0.8 * px; ctx.stroke(P.contour);
+        ctx.strokeStyle = `rgba(${T.contour},${0.2 * a})`; ctx.lineWidth = 1.1 * px; ctx.stroke(P.contourMajor);
       }
 
       // Areas
       const sel = this.selected && zoneFor(this.selected);
-      if (s < 0.5) for (const z of P.zones) { ctx.fillStyle = z.fill; ctx.fill(z.path); }
-      ctx.strokeStyle = s < 0.2 ? 'rgba(255,255,255,.16)' : 'rgba(255,255,255,.10)'; ctx.lineWidth = px;
+      if (s < 0.5 && !atlas) for (const z of P.zones) { ctx.fillStyle = z.fill; ctx.fill(z.path); }
+      ctx.strokeStyle = s < 0.2 ? T.zoneLineFar : T.zoneLine; ctx.lineWidth = px;
       for (const z of P.zones) ctx.stroke(z.path);
       if (sel) {
         const zz = P.zones.find((z) => z.z === sel);
@@ -512,22 +573,20 @@
         if (far && P.lo[kind]) ctx.stroke(P.lo[kind]);
         else this.eachCell(kind, (p) => ctx.stroke(p));
       };
-      road('dirt', s >= 0.22 ? 'rgba(176,150,105,.5)' : 'rgba(176,150,105,.32)', w(s >= 0.6 ? 1.2 : s >= 0.22 ? 0.8 : 0.5, 4));
+      road('dirt', T.dirt, w(s >= 0.6 ? 1.2 : s >= 0.22 ? 0.8 : 0.5, 4));
       // outlines first, then all the road surfaces on top, so joins are clean
-      if (s >= 0.4) {
-        if (s >= 0.14) road('minor', '#161b18', w(2.6, 8));
-        road('major', '#161b18', w(3.4, 11));
-      }
-      road('freeway', 'rgba(60,40,10,.75)', w(s >= 0.5 ? 5.5 : 3.5, 20));
-      const surface = s >= 0.4 ? '#a9b0ab' : null;
-      road('minor', surface || (s >= 0.14 ? 'rgba(200,208,204,.55)' : 'rgba(200,208,204,.38)'), w(s >= 0.4 ? 1.2 : s >= 0.14 ? 0.8 : 0.55, 5));
-      road('major', surface || 'rgba(236,236,232,.75)', w(s >= 0.3 ? 1.7 : 1, 7.5));
-      {
+      const close = s >= 0.4;
+      if (close) { road('minor', T.minorCase, w(2.6, 8)); road('major', T.majorCase, w(3.4, 11)); }
+      road('freeway', T.fwyCase, w(s >= 0.5 ? 5.5 : 3.5, 20));
+      road('minor', close ? T.minor : T.minorFar, w(s >= 0.4 ? 1.2 : s >= 0.14 ? 0.8 : 0.55, 5));
+      road('major', close ? T.major : T.majorFar, w(s >= 0.3 ? 1.7 : 1, 7.5));
+      if (atlas) road('rails', T.rails, Math.max(1.6 * px, 3));
+      else {
         ctx.setLineDash(s >= 0.12 ? [5 * px, 4 * px] : [3 * px, 2 * px]);
-        road('rails', 'rgba(200,170,140,.7)', 1.3 * px);
+        road('rails', T.rails, 1.3 * px);
         ctx.setLineDash([]);
       }
-      road('freeway', '#e0aa4a', w(s >= 0.5 ? 3.5 : 2, 14));
+      road('freeway', T.fwy, w(s >= 0.5 ? 3.5 : 2, 14));
 
       // Text and icons in screen pixels from here on
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -567,8 +626,8 @@
             const w = ctx.measureText(p[1]).width;
             if (free(x + 10, y - 7, x + 14 + w, y + 7)) {
               ctx.textAlign = 'left';
-              ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(8,12,10,.85)'; ctx.strokeText(p[1], x + 12, y);
-              ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.fillText(p[1], x + 12, y);
+              ctx.lineWidth = 3; ctx.strokeStyle = T.poiHalo; ctx.strokeText(p[1], x + 12, y);
+              ctx.fillStyle = T.poiText; ctx.fillText(p[1], x + 12, y);
               ctx.textAlign = 'center';
             }
             ctx.font = '11px "Segoe UI Symbol", "Segoe UI", sans-serif';
@@ -592,8 +651,8 @@
         if (dot) y += 24;
         if (!free(x - w / 2, y - size / 2 - 2, x + w / 2, y + size / 2 + 2)) continue;
         if (!z.water) ctx.letterSpacing = '0.8px';
-        ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(8,12,10,.85)'; ctx.strokeText(t, x, y);
-        ctx.fillStyle = z.water ? 'rgba(150,200,235,.85)' : 'rgba(255,255,255,.78)'; ctx.fillText(t, x, y);
+        ctx.lineWidth = 3.5; ctx.strokeStyle = T.halo; ctx.strokeText(t, x, y);
+        ctx.fillStyle = z.water ? T.water : T.label; ctx.fillText(t, x, y);
         ctx.letterSpacing = '0px';
       }
 
@@ -608,7 +667,8 @@
           ctx.letterSpacing = '4px';
           const tw = ctx.measureText(t).width;
           if (!free(sx - tw / 2, sy - size / 2, sx + tw / 2, sy + size / 2)) { ctx.letterSpacing = '0px'; continue; }
-          ctx.fillStyle = `rgba(${color},${0.16 * a})`;
+          const landLabel = color === '255,255,255';
+          ctx.fillStyle = `rgba(${landLabel ? T.region : color},${(atlas && landLabel ? 0.28 : 0.16) * a})`;
           ctx.fillText(t, sx, sy);
           ctx.letterSpacing = '0px';
         }
@@ -627,8 +687,8 @@
             const hh = (Math.abs(Math.sin(ang)) * w + Math.abs(Math.cos(ang)) * 12) / 2;
             if (!free(x - hw, y - hh, x + hw, y + hh)) continue;
             ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
-            ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(14,18,16,.9)'; ctx.strokeText(st.n, 0, 0);
-            ctx.fillStyle = 'rgba(235,235,225,.92)'; ctx.fillText(st.n, 0, 0);
+            ctx.lineWidth = 3; ctx.strokeStyle = T.streetHalo; ctx.strokeText(st.n, 0, 0);
+            ctx.fillStyle = T.street; ctx.fillText(st.n, 0, 0);
             ctx.restore();
           }
         }

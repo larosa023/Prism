@@ -895,3 +895,6 @@ body.theater .theater-exit:hover, body.theater.theater-peek .theater-exit { opac
 .npm-card-others { padding: 6px 10px 0; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; }
 .npm-card-actions { display: flex; gap: 6px; padding: 10px; flex-wrap: wrap; }
 .npm-card-actions .btn { height: 28px; font-size: 12px; padding: 0 10px; }
+
+.npm-map.atlas { background: #141a3c; }
+.npm-map.atlas .npm-hint { color: rgba(255,255,255,.6); }

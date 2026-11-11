@@ -1,6 +1,15 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.14.0',
+    date: 'Nov 11, 2026',
+    items: [
+      'NoPixel map has a new light "Atlas" look, styled like the game\'s own map: shallow water that lightens toward the coast, grassland, forest on the hills (darker on the high ground), desert sand around Sandy Shores, beaches, the golf course, lakes and rivers, built-up towns in white, and hill shading over all of it.',
+      'Roads are drawn in blue-grey like the game\'s map (freeways thickest), the railway in purple, and labels in dark text that\'s easy to read on the light map.',
+      'Prefer the old look? "Dark map" on the map switches back (and "Light map" returns). Prism remembers which you picked.'
+    ]
+  },
+  {
     version: '0.13.0',
     date: 'Nov 11, 2026',
     items: [
