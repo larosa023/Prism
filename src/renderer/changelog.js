@@ -1,6 +1,14 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.14.1',
+    date: 'Nov 12, 2026',
+    items: [
+      'Chat keeps up again: it stays on the newest message unless you scroll up yourself. Emotes loading, old lines being removed or the pinned message appearing no longer make it think you scrolled away and get stuck.',
+      'While you\'re scrolled up reading, what you\'re looking at stays put as new messages come in. "New messages below" takes you back down.'
+    ]
+  },
+  {
     version: '0.14.0',
     date: 'Nov 11, 2026',
     items: [

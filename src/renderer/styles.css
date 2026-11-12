@@ -825,7 +825,8 @@ body.theater .theater-exit:hover, body.theater.theater-peek .theater-exit { opac
 .rp-card { content-visibility: auto; contain-intrinsic-size: auto 250px; }
 .rp-off { content-visibility: auto; contain-intrinsic-size: auto 60px; }
 .vod-card { content-visibility: auto; contain-intrinsic-size: auto 220px; }
-.msg { content-visibility: auto; contain-intrinsic-size: auto 22px; }
+/* (chat lines are not skipped: their guessed size made chat lose its place) */
+.chat-pane { overflow-anchor: none; }
 
 /* ---- Quick search (Ctrl + K) -------------------------------------------- */
 .pal { position: fixed; inset: 0; z-index: 200; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgba(0,0,0,.45); }

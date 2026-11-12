@@ -1457,13 +1457,35 @@
     if (p) return p;
     const el = h('div', { class: 'chat-pane', 'data-ch': ch }, h('div', { class: 'chat-empty', text: `Joined #${ch}` }));
     p = { el, kind: 'twitch', stick: true, queue: [], emotes: null };
-    el.addEventListener('scroll', () => {
-      p.stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 40;
-      if (p.stick && chatKey === key) $('#chat-more').hidden = true;
-    });
+    followBottom(p, key);
     chatBody.append(el);
     panes.set(key, p);
     return p;
+  }
+
+  // Keeping chat at the newest message. Only *you* scrolling up stops it:
+  // emotes and badges loading, old lines being removed, or the pinned message
+  // appearing all change the size of the chat, and used to make it think you'd
+  // scrolled away (so it got stuck until you scrolled back down).
+  function followBottom(p, key) {
+    const el = p.el;
+    let userAt = 0;
+    const mark = () => { userAt = performance.now(); };
+    el.addEventListener('wheel', mark, { passive: true });
+    el.addEventListener('touchmove', mark, { passive: true });
+    el.addEventListener('pointerdown', mark); // dragging the scrollbar
+    el.addEventListener('keydown', mark);
+    const atEnd = () => el.scrollTop + el.clientHeight >= el.scrollHeight - 60;
+    el.addEventListener('scroll', () => {
+      const byUser = performance.now() - userAt < 400;
+      if (byUser) p.stick = atEnd();
+      else if (p.stick && !atEnd()) el.scrollTop = el.scrollHeight; // something grew: stay at the bottom
+      if (p.stick && chatKey === key) $('#chat-more').hidden = true;
+    });
+    // images (emotes, badges) finishing loading make lines taller
+    el.addEventListener('load', () => { if (p.stick) el.scrollTop = el.scrollHeight; }, true);
+    // the chat box changing size (pinned message, hype train, resizing the window)
+    new ResizeObserver(() => { if (p.stick) el.scrollTop = el.scrollHeight; }).observe(el);
   }
 
   // Batch new messages once per frame so busy chats stay smooth.
@@ -1485,14 +1507,29 @@
       for (const b of items) frag.append(b());
       p.el.querySelector('.chat-empty')?.remove();
       p.el.append(frag);
-      while (p.el.childElementCount > max) p.el.firstElementChild.remove();
-      if (p.stick) p.el.scrollTop = p.el.scrollHeight;
-      else if (key === chatKey) $('#chat-more').hidden = false;
+      if (p.stick) {
+        while (p.el.childElementCount > max) p.el.firstElementChild.remove();
+        p.el.scrollTop = p.el.scrollHeight;
+      } else {
+        // Scrolled up to read: keep what you're looking at in place (lines
+        // aren't removed above you until there are far too many).
+        if (p.el.childElementCount > max * 4) {
+          const before = p.el.scrollHeight;
+          while (p.el.childElementCount > max * 3) p.el.firstElementChild.remove();
+          p.el.scrollTop -= before - p.el.scrollHeight;
+        }
+        if (key === chatKey) $('#chat-more').hidden = false;
+      }
     }
   }
   $('#chat-more').addEventListener('click', () => {
     const p = panes.get(chatKey);
-    if (p) { p.stick = true; p.el.scrollTop = p.el.scrollHeight; }
+    if (p) {
+      p.stick = true;
+      const max = Number(S.chatMaxLines) || 250;
+      while (p.el.childElementCount > max) p.el.firstElementChild.remove();
+      p.el.scrollTop = p.el.scrollHeight;
+    }
     $('#chat-more').hidden = true;
   });
 
