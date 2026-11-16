@@ -90,6 +90,41 @@ async function chatExtras(l) {
   };
 }
 
+// Chat badges (real Twitch badge pictures) and cheer emotes, global ones
+// once and each channel's own (sub badges, custom cheers) on request.
+const badgeQ = 'setID version title imageURL(size: NORMAL)';
+const cheerQ = 'templateURL nodes { prefix tiers { bits } }';
+let globalAssets = null;
+const channelAssets = new Map();
+function packBadges(list, out) {
+  for (const b of list || []) if (b?.imageURL) out[b.setID + '/' + b.version] = [b.imageURL.replace(/\/\d+$/, '/'), b.title || b.setID];
+  return out;
+}
+function packCheers(groups, out) {
+  for (const g of groups || []) for (const n of g.nodes || []) if (n.prefix) out[n.prefix.toLowerCase()] = { t: g.templateURL, p: n.prefix, tiers: (n.tiers || []).map((x) => x.bits).sort((a, b) => a - b) };
+  return out;
+}
+async function chatAssets(l) {
+  l = login(l);
+  if (!globalAssets) {
+    const r = await gql(`query { badges { ${badgeQ} } cheerConfig { displayConfig { colors { bits color } } groups { ${cheerQ} } } }`);
+    if (!r.data?.badges) throw new Error(r.errors?.[0]?.message || 'No badges');
+    globalAssets = {
+      badges: packBadges(r.data.badges, {}),
+      cheers: packCheers(r.data.cheerConfig?.groups, {}),
+      colors: (r.data.cheerConfig?.displayConfig?.colors || []).map((c) => [c.bits, c.color]).sort((a, b) => a[0] - b[0])
+    };
+  }
+  let ch = channelAssets.get(l);
+  if (!ch && l) {
+    const r = await gql(`query($l: String!) { user(login: $l) { broadcastBadges { ${badgeQ} } cheer { cheerGroups { ${cheerQ} } } } }`, { l });
+    ch = { badges: packBadges(r.data?.user?.broadcastBadges, {}), cheers: packCheers(r.data?.user?.cheer?.cheerGroups, {}), at: Date.now() };
+    channelAssets.set(l, ch);
+    if (channelAssets.size > 60) channelAssets.delete(channelAssets.keys().next().value);
+  }
+  return { global: globalAssets, channel: ch || { badges: {}, cheers: {} } };
+}
+
 const safe = (fn) => async (_e, ...a) => { try { return await fn(...a); } catch (e) { return { error: e.message }; } };
 function init() {
   ipcMain.handle('twitch:user-ids', safe((logins) => userIds(logins || [])));
@@ -97,6 +132,7 @@ function init() {
   ipcMain.handle('twitch:vod-master', safe(vodMaster));
   ipcMain.handle('twitch:clip-url', safe(clipUrl));
   ipcMain.handle('twitch:chat-extras', safe(chatExtras));
+  ipcMain.handle('twitch:chat-assets', safe(chatAssets));
 }
 
 module.exports = { init };

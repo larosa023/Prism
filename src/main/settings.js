@@ -63,6 +63,7 @@ const DEFAULTS = {
   duckLevel: 0.2,           // how quiet 'duck' is
   chatMaxLines: 250,
   chatFontSize: 13,
+  chatStyle: 'twitch',      // 'twitch' (looks like Twitch's own chat) or 'prism'
   chatPauseOnHover: true,   // hold chat still while the mouse is over it
   chatTimestamps: false,
   chatHideBots: true,       // Nightbot, StreamElements and other bots

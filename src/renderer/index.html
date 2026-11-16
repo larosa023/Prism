@@ -94,8 +94,11 @@
           <form id="chat-form" class="chat-form" autocomplete="off" hidden>
             <div class="chat-input-row">
               <input id="chat-input" type="text" maxlength="500" spellcheck="true" placeholder="Send a message">
-              <button type="button" class="points-pill" id="points" hidden></button>
               <button type="button" class="icon-btn emote-btn" id="emote-btn" title="Emotes">☺</button>
+            </div>
+            <div class="chat-actions">
+              <button type="button" class="points-pill" id="points" hidden></button>
+              <button type="submit" class="chat-send">Chat</button>
             </div>
             <div id="emote-picker" class="emote-picker" hidden>
               <input id="emote-search" type="text" spellcheck="false" placeholder="Search emotes">
@@ -254,6 +257,11 @@
             <input type="checkbox" class="switch" data-setting="thirdPartyEmotes"></label>
           <label class="row"><span><b>Text size</b></span>
             <input type="range" min="11" max="18" step="1" data-setting="chatFontSize" data-number></label>
+          <label class="row"><span><b>Chat look</b><small>"Twitch" matches Twitch's own chat: its badges, font, spacing and colors.</small></span>
+            <select data-setting="chatStyle">
+              <option value="twitch">Twitch</option>
+              <option value="prism">Prism (compact)</option>
+            </select></label>
           <label class="row"><span><b>Pause chat while the mouse is over it</b><small>New messages wait so you can read and click names; they appear when you move the mouse away.</small></span>
             <input type="checkbox" class="switch" data-setting="chatPauseOnHover"></label>
           <label class="row"><span><b>Show the time on each message</b></span>

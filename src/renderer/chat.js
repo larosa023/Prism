@@ -175,6 +175,8 @@
 
   // ---- Rendering ----------------------------------------------------------
   const BADGES = { broadcaster: 'LIVE', moderator: 'MOD', vip: 'VIP', subscriber: 'SUB', partner: '✓' };
+  const DEFAULT_COLORS = ['#FF0000', '#0000FF', '#008000', '#B22222', '#FF7F50', '#9ACD32', '#FF4500', '#2E8B57',
+    '#DAA520', '#D2691E', '#5F9EA0', '#1E90FF', '#FF69B4', '#8A2BE2', '#00FF7F'];
   const URL_RE = /^(https?:\/\/|www\.)\S+$/i;
 
   // Make names readable on a dark background.
@@ -183,25 +185,42 @@
   function readable(hex, nick) {
     const light = isLight();
     if (!hex) {
+      // No color picked: Twitch gives these people one of its 15 defaults.
       let h = 0;
-      for (const c of nick) h = (h * 31 + c.charCodeAt(0)) % 360;
-      return light ? `hsl(${h} 70% 36%)` : `hsl(${h} 70% 68%)`;
+      for (const c of nick) h = (h + c.charCodeAt(0)) | 0;
+      hex = DEFAULT_COLORS[Math.abs(h) % DEFAULT_COLORS.length];
     }
     const ck = hex + (light ? 'L' : 'D');
     if (colorCache.has(ck)) return colorCache.get(ck);
+    // Like Twitch: keep the hue, but lighten (dark chat) or darken (light
+    // chat) the color until it's easy to read on the background.
     const n = parseInt(hex.slice(1), 16);
-    let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    if (!light && lum < 110) {
-      const k = 110 / Math.max(lum, 20);
-      r = Math.min(255, r * k + 50); g = Math.min(255, g * k + 50); b = Math.min(255, b * k + 50);
-    } else if (light && lum > 140) {
-      const k = 120 / lum; // darken bright colors on a white background
-      r *= k; g *= k; b *= k;
-    }
-    const out = `rgb(${r | 0},${g | 0},${b | 0})`;
+    let [h, sat, l] = toHsl(n >> 16, (n >> 8) & 255, n & 255);
+    const bg = light ? 1 : 0.0093; // relative luminance of #fff / #18181b
+    const contrast = (lum) => (Math.max(lum, bg) + 0.05) / (Math.min(lum, bg) + 0.05);
+    for (let i = 0; i < 20 && contrast(relLum(...fromHsl(h, sat, l))) < 4.5; i++) l = light ? l - 0.04 : l + 0.04;
+    const [r, g, b] = fromHsl(h, sat, Math.max(0, Math.min(1, l)));
+    const out = `rgb(${r},${g},${b})`;
     colorCache.set(ck, out);
     return out;
+  }
+  function toHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+    if (max === min) return [0, 0, l];
+    const d = max - min, s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [h / 6, s, l];
+  }
+  function fromHsl(h, s, l) {
+    if (!s) { const v = Math.round(l * 255); return [v, v, v]; }
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const f = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+    return [f(h + 1 / 3), f(h), f(h - 1 / 3)].map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255));
+  }
+  function relLum(r, g, b) {
+    const c = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * c(r) + 0.7152 * c(g) + 0.0722 * c(b);
   }
   // Re-tune an already-shown name color after a theme switch.
   function recolor(css) {
@@ -215,6 +234,7 @@
     const img = document.createElement('img');
     img.className = 'emote';
     img.src = url;
+    if (url.endsWith('/1.0')) img.srcset = url.slice(0, -3) + '2.0 2x';
     img.alt = name;
     img.title = name;
     img.loading = 'lazy';
@@ -223,7 +243,7 @@
   }
 
   // Twitch gives emote positions in code points: "25:0-4,6-10/1902:12-16".
-  function renderText(container, text, emotesTag, extra, selfLogin) {
+  function renderText(container, text, emotesTag, extra, selfLogin, cheer) {
     const chars = Array.from(text);
     const ranges = [];
     if (emotesTag) {
@@ -245,6 +265,16 @@
       for (const w of parts) {
         if (!w) continue;
         if (extra && extra(w)) { flush(); container.appendChild(emoteImg(extra(w), w)); continue; }
+        if (cheer) { const c = cheer(w); if (c) { flush(); container.appendChild(c); continue; } }
+        if (w[0] === '@' && w.length > 1) {
+          flush();
+          const m = document.createElement('span');
+          m.className = 'mention-frag';
+          m.textContent = w;
+          if (selfLogin && w.slice(1).toLowerCase().replace(/[,.!?:]/g, '') === selfLogin) { m.classList.add('me'); mention = true; }
+          container.appendChild(m);
+          continue;
+        }
         if (URL_RE.test(w)) {
           flush();
           const a = document.createElement('a');
@@ -271,9 +301,42 @@
     return mention;
   }
 
+  // "Cheer100" in a message with bits: the cheer picture and the amount, in
+  // the tier's color, like on Twitch.
+  function cheerMaker(opts) {
+    const cheers = opts.cheers;
+    if (!cheers) return null;
+    return (w) => {
+      const m = /^([a-z][a-z0-9]*?)(\d+)$/i.exec(w);
+      const c = m && cheers[m[1].toLowerCase()];
+      if (!c) return null;
+      const bits = Number(m[2]);
+      if (!bits) return null;
+      let tier = c.tiers[0] || 1;
+      for (const t of c.tiers) if (bits >= t) tier = t;
+      let color = '';
+      for (const [b, col] of opts.cheerColors || []) if (tier >= b) color = col;
+      const url = (scale) => c.t.replace('PREFIX', c.p.toLowerCase()).replace('BACKGROUND', opts.light ? 'light' : 'dark')
+        .replace('ANIMATION', 'animated').replace('TIER', tier).replace('SCALE', scale).replace('EXTENSION', 'gif');
+      const wrap = document.createElement('span');
+      wrap.className = 'cheer';
+      const img = emoteImg(url('1'), w);
+      img.srcset = url('2') + ' 2x';
+      const n = document.createElement('span');
+      n.className = 'cheer-n';
+      n.textContent = bits;
+      if (color) n.style.color = color;
+      wrap.append(img, n);
+      return wrap;
+    };
+  }
+
   function renderMessage({ tags, nick, text }, opts) {
     const el = document.createElement('div');
     el.className = 'msg';
+    const kind = tags['msg-id'];
+    if (kind === 'highlighted-message') el.classList.add('highlighted');
+    if (kind === 'gigantified-emote-message') el.classList.add('giant');
     if (tags.id) el.dataset.id = tags.id;
     el.dataset.user = (tags.login || nick || '').toLowerCase();
 
@@ -290,7 +353,11 @@
       const what = document.createElement('span');
       what.className = 'reply-body';
       what.textContent = tags['reply-parent-msg-body'] || '';
-      ref.append('↳ Replying to ', who, what.textContent ? ': ' : '', what);
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('viewBox', '0 0 20 20');
+      icon.setAttribute('class', 'reply-icon');
+      icon.innerHTML = '<path fill="currentColor" d="M8.5 5.5 7.086 4.086 2 9.172V10l5.086 5.086L8.5 13.672 5.828 11H12a4 4 0 0 1 4 4v1h2v-1a6 6 0 0 0-6-6H5.828L8.5 5.5Z"/>';
+      ref.append(icon, 'Replying to ', who, what.textContent ? ': ' : '', what);
       ref.title = `@${parentName}: ${tags['reply-parent-msg-body'] || ''}`;
       if (tags['reply-parent-msg-id']) ref.dataset.parent = tags['reply-parent-msg-id'];
       ref.dataset.login = String(tags['reply-parent-user-login'] || parentName).toLowerCase();
@@ -309,9 +376,22 @@
       if (opts.selfLogin && String(tags['reply-parent-user-login'] || '').toLowerCase() === opts.selfLogin) el.classList.add('mention');
     }
 
+    const info = {};
+    for (const x of (tags['badge-info'] || '').split(',')) { const [k, v] = x.split('/'); if (k) info[k] = v; }
     for (const b of (tags.badges || '').split(',')) {
+      if (!b) continue;
       const key = b.split('/')[0];
-      if (BADGES[key]) {
+      const real = opts.badge && opts.badge(b);
+      if (real) {
+        const img = document.createElement('img');
+        img.className = 'badge-img';
+        img.src = real[0] + '1';
+        img.srcset = real[0] + '2 2x';
+        img.alt = real[1];
+        img.title = key === 'subscriber' && info.subscriber ? `${real[1]} (${info.subscriber} months)` : real[1];
+        img.decoding = 'async';
+        el.appendChild(img);
+      } else if (BADGES[key]) {
         const s = document.createElement('span');
         s.className = 'badge b-' + key;
         s.textContent = BADGES[key];
@@ -321,7 +401,10 @@
 
     const name = document.createElement('span');
     name.className = 'name';
-    name.textContent = tags['display-name'] || nick;
+    const display = tags['display-name'] || nick;
+    const login = tags.login || nick || '';
+    // Names in other alphabets get the login after them, like on Twitch.
+    name.textContent = display && login && display.toLowerCase() !== login.toLowerCase() && /[^\x00-\x7f]/.test(display) ? `${display} (${login})` : display;
     name.style.color = readable(tags.color, nick || '');
     el.appendChild(name);
 
@@ -335,7 +418,7 @@
     const body = document.createElement('span');
     body.className = 'text';
     if (action) body.style.color = name.style.color;
-    const mention = renderText(body, text, emotes, opts.extraEmote, opts.selfLogin);
+    const mention = renderText(body, text, emotes, opts.extraEmote, opts.selfLogin, tags.bits ? cheerMaker(opts) : null);
     if (mention) el.classList.add('mention');
     el.appendChild(body);
     return el;

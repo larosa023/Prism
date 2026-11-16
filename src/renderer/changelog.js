@@ -1,6 +1,18 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.16.0',
+    date: 'Nov 16, 2026',
+    items: [
+      'Twitch chat now looks like Twitch\'s own chat: the real badge pictures (sub badges with months, mod, VIP, bits, event badges and more), Twitch\'s Inter font, spacing, colors and emote sizes, in dark and light themes.',
+      'Name colors are adjusted the way Twitch does it, so dark names (black, navy) are readable, and people without a color get one of Twitch\'s defaults.',
+      'Subs, gift subs and raids show with Twitch\'s colored edge, announcements in their colored box, "Highlight my message" in purple, and cheers with the cheer picture and the bits amount.',
+      'Replies show "Replying to @name" like on Twitch, @mentions are bold, deleted messages read "<message deleted>", and names in other alphabets show the login after them.',
+      'The message box looks like Twitch\'s, with a purple Chat button and your channel points under it.',
+      'Prefer the old compact chat? Settings → Chat → Chat look → Prism.'
+    ]
+  },
+  {
     version: '0.15.0',
     date: 'Nov 16, 2026',
     items: [

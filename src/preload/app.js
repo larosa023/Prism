@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('prism', {
   twitchVodMaster: (id) => ipcRenderer.invoke('twitch:vod-master', id),
   twitchClipUrl: (slug) => ipcRenderer.invoke('twitch:clip-url', slug),
   twitchChatExtras: (login) => ipcRenderer.invoke('twitch:chat-extras', login),
+  twitchChatAssets: (login) => ipcRenderer.invoke('twitch:chat-assets', login),
   twitchCategoryStreams: (game, force) => ipcRenderer.invoke('twitch:category-streams', game, force),
   nopixelStreams: (force) => ipcRenderer.invoke('nopixel:streams', force),
   nopixelRemove: (login) => ipcRenderer.invoke('nopixel:remove', login),

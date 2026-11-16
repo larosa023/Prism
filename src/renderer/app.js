@@ -1391,14 +1391,14 @@
       const at = Date.now();
       queue('twitch:' + ch, () => decorate(PrismChat.renderMessage(m, msgOpts(ch)), m, at));
     },
-    onNotice: (ch, m) => queue('twitch:' + ch, () => {
-      const el = h('div', { class: 'msg notice' }, h('div', { text: m.tags['system-msg'] || '' }));
+    onNotice: (ch, m) => {
+      const msg = { tags: m.tags, nick: m.tags.login, text: m.text };
       if (m.text) {
-        logUserMessage(ch, { tags: m.tags, nick: m.tags.login, text: m.text });
-        el.append(PrismChat.renderMessage({ tags: m.tags, nick: m.tags.login, text: m.text }, msgOpts(ch)));
+        if (chatHidden(msg) === 'user') return;
+        logUserMessage(ch, msg);
       }
-      return el;
-    }),
+      queue('twitch:' + ch, () => noticeLine(ch, m, msg));
+    },
     onSystem: (ch, text) => ch && queue('twitch:' + ch, () => h('div', { class: 'msg system', text })),
     onRoom: (ch, roomId) => {
       const p = twitchPane(ch);
@@ -1418,6 +1418,28 @@
       if (p && id) $(`.msg[data-id="${CSS.escape(id)}"]`, p.el)?.classList.add('deleted');
     }
   });
+
+  // Subs, gifts, raids and announcements, drawn like Twitch's own notices.
+  const ANNOUNCE = { PRIMARY: '#9147ff', BLUE: '#00d6d6', GREEN: '#00db84', ORANGE: '#ffb31a', PURPLE: '#9147ff' };
+  function noticeLine(ch, m, msg) {
+    const id = m.tags['msg-id'] || '';
+    const sys = m.tags['system-msg'] || '';
+    const el = h('div', { class: 'msg notice' });
+    if (id === 'announcement') {
+      el.classList.add('announce');
+      el.style.setProperty('--ann', ANNOUNCE[m.tags['msg-param-color']] || ANNOUNCE.PRIMARY);
+      el.append(h('div', { class: 'notice-head', text: '📣 Announcement' }));
+    } else {
+      el.classList.add(/sub|gift|upgrade/.test(id) ? 'n-sub' : id === 'raid' ? 'n-raid' : 'n-other');
+      const head = h('div', { class: 'notice-head' });
+      const who = m.tags['display-name'] || '';
+      if (who && sys.startsWith(who)) head.append(h('b', { text: who }), sys.slice(who.length));
+      else head.textContent = sys;
+      el.append(head);
+    }
+    if (m.text) el.append(decorate(PrismChat.renderMessage(msg, msgOpts(ch)), msg, Date.now()));
+    return el;
+  }
 
   // ---- Chat filters, highlights and timestamps ---------------------------------
   const BOTS = new Set(['nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot', 'wizebot', 'sery_bot', 'soundalerts', 'botrixoficial', 'pokemoncommunitygame',
@@ -1456,11 +1478,29 @@
     return el;
   }
 
+  // Real Twitch badge pictures and cheer emotes for each chat.
+  const chatAssets = new Map(); // ch -> { badges, cheers, colors }
+  function loadChatAssets(ch) {
+    if (chatAssets.has(ch)) return chatAssets.get(ch).ready;
+    const a = { badges: null, cheers: null, colors: [] };
+    a.ready = prism.twitchChatAssets(ch).then((r) => {
+      if (!r || r.error) return;
+      a.badges = { ...r.global.badges, ...r.channel.badges };
+      a.cheers = { ...r.global.cheers, ...r.channel.cheers };
+      a.colors = r.global.colors || [];
+    }).catch(() => {});
+    chatAssets.set(ch, a);
+    return a.ready;
+  }
   function msgOpts(ch) {
     const p = panes.get('twitch:' + ch);
+    const a = chatAssets.get(ch);
     return {
       selfLogin,
-      extraEmote: S.thirdPartyEmotes ? (w) => p?.emotes?.get(w) || globalEmotes.get(w) : null
+      extraEmote: S.thirdPartyEmotes ? (w) => p?.emotes?.get(w) || globalEmotes.get(w) : null,
+      badge: a?.badges ? (key) => a.badges[key] : null,
+      cheers: a?.cheers, cheerColors: a?.colors,
+      light: document.documentElement.dataset.theme === 'light'
     };
   }
 
@@ -1480,6 +1520,7 @@
       if (r.ok) lines = (await r.json()).messages || [];
     } catch { return; }
     if (!chat.channels.has(ch) || !lines.length) return;
+    await Promise.race([loadChatAssets(ch), new Promise((r) => setTimeout(r, 2500))]);
     const p = twitchPane(ch);
     const seen = new Set([...p.el.querySelectorAll('.msg[data-id]')].map((m) => m.dataset.id));
     const items = [];
@@ -1517,7 +1558,10 @@
     let p = panes.get(key);
     if (p) return p;
     const el = h('div', { class: 'chat-pane', 'data-ch': ch }, h('div', { class: 'chat-empty', text: `Joined #${ch}` }));
-    p = { el, kind: 'twitch', stick: true, queue: [], emotes: null };
+    p = { el, kind: 'twitch', stick: true, queue: [], emotes: null, ready: false };
+    const go = () => { if (p.ready) return; p.ready = true; if (p.queue.length && !flushScheduled) { flushScheduled = true; requestAnimationFrame(flush); } };
+    loadChatAssets(ch).then(go);
+    setTimeout(go, 2500);
     followBottom(p, key);
     chatBody.append(el);
     panes.set(key, p);
@@ -1580,7 +1624,7 @@
       if (!p.queue.length) continue;
       // Chats you can't see aren't drawn: their newest messages wait (only
       // as many as the chat keeps) and are drawn when you switch to it.
-      if (p.kind === 'twitch' && !p.el.classList.contains('on')) { if (p.queue.length > max) p.queue.splice(0, p.queue.length - max); continue; }
+      if (p.kind === 'twitch' && (!p.ready || !p.el.classList.contains('on'))) { if (p.queue.length > max) p.queue.splice(0, p.queue.length - max); continue; }
       // Paused while the mouse is over the chat (so you can read and click).
       if (p.hover && p.stick && S.chatPauseOnHover) { if (p.queue.length > max * 2) p.queue.splice(0, p.queue.length - max * 2); paintPaused(p); continue; }
       const items = p.queue.splice(0, p.queue.length).slice(-max);
@@ -1726,7 +1770,7 @@
     const row = (x) => {
       const line = PrismChat.renderMessage(x.m, msgOpts(ch));
       line.querySelector('.name')?.remove();
-      line.querySelectorAll('.badge').forEach((b) => b.remove());
+      line.querySelectorAll('.badge, .badge-img').forEach((b) => b.remove());
       if (line.firstChild?.nodeType === 3) line.firstChild.remove(); // the ": " after the name
       line.prepend(h('span', { class: 'uc-time', text: fmtTime(x.at) }));
       if (x.history) line.classList.add('history');
@@ -2254,6 +2298,7 @@
     if (k === 'liveAlerts') paintBell();
     if (k === 'evenVolume') for (const t of tiles.values()) t.player?.setEven(!!S.evenVolume);
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
+    if (k === 'chatStyle') document.body.classList.toggle('tw-chat', S.chatStyle !== 'prism');
     if (k === 'backgroundAudio' || k === 'duckLevel') {
       for (const x of streams) {
         if (S.backgroundAudio === 'duck' && x.muted && streams.some((y) => !y.muted && !y.ducked)) { x.muted = false; x.ducked = true; }
@@ -3338,6 +3383,7 @@
   }
 
   document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
+  document.body.classList.toggle('tw-chat', S.chatStyle !== 'prism');
   $('.nav-btn.kick').hidden = !S.showKick;
   $$('#layout-seg button').forEach((b) => b.classList.toggle('on', b.dataset.layout === S.layout));
   applyChatVisible();
