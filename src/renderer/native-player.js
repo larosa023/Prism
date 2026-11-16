@@ -348,7 +348,36 @@
     }
 
     setMuted(m) { this.video.muted = m; }
-    setVolume(v) { this.video.volume = Math.max(0, Math.min(1, v)); }
+    setVolume(v) {
+      this.vol = Math.max(0, Math.min(1, v));
+      if (this.audio) { this.video.volume = 1; this.audio.gain.gain.value = this.vol; }
+      else this.video.volume = this.vol;
+    }
+
+    // "Even out volume": a gentle compressor so loud streams and quiet
+    // streams sit at about the same level. Built only when turned on.
+    setEven(on) {
+      if (!on && !this.audio) return;
+      if (!this.audio) {
+        const ctx = NativeTwitchPlayer.audioCtx || (NativeTwitchPlayer.audioCtx = new AudioContext());
+        const src = ctx.createMediaElementSource(this.video);
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -28; comp.knee.value = 24; comp.ratio.value = 4;
+        comp.attack.value = 0.01; comp.release.value = 0.3;
+        const makeup = ctx.createGain(); makeup.gain.value = 1.6;
+        const gain = ctx.createGain();
+        gain.connect(ctx.destination);
+        this.audio = { ctx, src, comp, makeup, gain, on: null };
+        this.setVolume(this.vol ?? this.video.volume);
+      }
+      const a = this.audio;
+      if (a.on === on) return;
+      a.on = on;
+      try { a.src.disconnect(); a.comp.disconnect(); a.makeup.disconnect(); } catch {}
+      if (on) { a.src.connect(a.comp); a.comp.connect(a.makeup); a.makeup.connect(a.gain); }
+      else a.src.connect(a.gain);
+      if (a.ctx.state === 'suspended') a.ctx.resume().catch(() => {});
+    }
 
     stopHls() {
       clearTimeout(this.retryTimer);
@@ -361,6 +390,7 @@
       this.destroyed = true;
       clearTimeout(this.adTimer);
       this.stopHls();
+      if (this.audio) { try { this.audio.src.disconnect(); this.audio.gain.disconnect(); } catch {} this.audio = null; }
       this.video.removeAttribute('src');
       try { this.video.load(); } catch {}
       if (this.kind === 'twitch') prism.twitchStream.forget(this.login);

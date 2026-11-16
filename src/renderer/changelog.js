@@ -1,6 +1,21 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.15.0',
+    date: 'Nov 16, 2026',
+    items: [
+      'Streams start muted: when Prism opens and when you add a stream, nothing plays sound until you click a stream\'s speaker. (Turn this off with "Streams start muted" in Settings.)',
+      'TikTok starts muted, with a new speaker button at the top of the TikTok tab to turn sound on. Every Browse tab (Twitch, YouTube, Kick) has the same button to mute that tab.',
+      'Lighter chat: chats you aren\'t looking at are no longer drawn in the background. Their newest messages wait and appear the moment you switch to them, so several streams with busy chats use much less CPU and memory.',
+      'Chat pauses while your mouse is over it, so you can read and click names without the chat running away ("Chat paused · 12 new"). It catches up as soon as you move the mouse away.',
+      'Chat bots (Nightbot, StreamElements, Streamlabs, Moobot, Fossabot and others) are hidden by default.',
+      'New in Settings → Chat: the time on each message, words to highlight (your character, your crew), words to hide, and people to hide. "Hide in chat" on someone\'s name card hides them in one click.',
+      'Someone\'s first message in a chat is marked with a green edge.',
+      'Even out volume (in Settings): loud and quiet Twitch streams sound about the same level.',
+      'NoPixel map: zoom in a bit and streamers\' character names appear under their pictures.'
+    ]
+  },
+  {
     version: '0.14.1',
     date: 'Nov 12, 2026',
     items: [

@@ -63,6 +63,16 @@ const DEFAULTS = {
   duckLevel: 0.2,           // how quiet 'duck' is
   chatMaxLines: 250,
   chatFontSize: 13,
+  chatPauseOnHover: true,   // hold chat still while the mouse is over it
+  chatTimestamps: false,
+  chatHideBots: true,       // Nightbot, StreamElements and other bots
+  chatFirstTime: true,      // mark someone's first message in a chat
+  chatHighlight: '',        // words to highlight (comma separated)
+  chatHideWords: '',        // messages with these words are hidden
+  chatHideUsers: '',        // people whose messages are hidden
+  startMuted: true,         // streams start muted (pick one to hear)
+  tiktokMuted: true,        // TikTok starts muted
+  evenVolume: false,        // even out loud and quiet streams
   thirdPartyEmotes: true,   // 7TV + BTTV emotes in Twitch chat
   mentionSound: true,       // chime when someone @mentions you
   recentMessages: true,     // load the last messages when a chat opens (recent-messages.robotty.de)

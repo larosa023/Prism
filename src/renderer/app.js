@@ -95,6 +95,17 @@
     let wv = null;
     let lastUrl = p.home;
     let unloadTimer = null;
+    // TikTok starts muted (videos autoplay as you scroll); the speaker button
+    // turns sound on for this visit.
+    let muted = platform === 'tiktok' && S.tiktokMuted !== false;
+    const soundBtn = h('button', { class: 'icon-btn sound-btn', onclick: () => { muted = !muted; applySound(); } });
+    function applySound() {
+      soundBtn.textContent = muted ? '🔇' : '🔊';
+      soundBtn.title = muted ? 'Sound off — click to hear this tab' : 'Sound on — click to mute this tab';
+      soundBtn.classList.toggle('off', muted);
+      try { wv?.setAudioMuted(muted); } catch {}
+    }
+    applySound();
 
     const urlEl = h('div', { class: 'url' });
     const addBtn = h('button', { class: 'btn btn-accent', text: '+ Multi-view', hidden: true, onclick: () => {
@@ -107,6 +118,7 @@
       h('button', { class: 'icon-btn', title: 'Reload', text: '⟳', onclick: () => wv?.reload() }),
       h('button', { class: 'icon-btn', title: 'Home', text: '⌂', onclick: () => wv?.loadURL(p.home) }),
       urlEl,
+      soundBtn,
       platform === 'tiktok' ? null : addBtn
     );
     root.append(bar);
@@ -131,6 +143,7 @@
       });
       wv.addEventListener('did-navigate-in-page', onNav);
       wv.addEventListener('dom-ready', onNav, { once: true });
+      wv.addEventListener('dom-ready', applySound);
       if (platform === 'youtube') wv.addEventListener('dom-ready', applyYouTubeRows);
       root.append(wv);
     }
@@ -181,6 +194,8 @@
   const stage = $('#stage');
   const tiles = new Map(); // key -> { el, wv, stream, ready }
   let streams = Array.isArray(S.streams) ? S.streams : [];
+  // Streams start muted: click a tile's speaker (or press 1–9 then M) to hear one.
+  if (S.startMuted) for (const x of streams) { x.muted = true; x.ducked = false; }
   let focusKey = streams[0] ? keyOf(streams[0]) : null;
   let chatKey = null;
 
@@ -315,7 +330,7 @@
     if (streams.some((x) => keyOf(x) === key)) { showView('multiview'); return toast('Already in multi-view.'); }
     const anyUnmuted = streams.some((x) => !x.muted && (x.platform !== 'kick' || S.showKick));
     streams.push({ platform: 'vod', id, channel: item.channel, label: `${item.channelName || item.channel} · ${item.title || (item.type === 'clip' ? 'Clip' : 'Past broadcast')}`.slice(0, 80),
-      muted: S.singleAudio && anyUnmuted });
+      muted: !!S.startMuted || (S.singleAudio && anyUnmuted) });
     persistStreams();
     renderStage();
     showView('multiview');
@@ -390,6 +405,7 @@
       t.player = player;
       t.setAudio = (muted) => player.setMuted(muted);
       t.setVol = (v) => player.setVolume(v);
+      if (S.evenVolume) player.setEven(true);
       t.reload = () => player.start();
       t.destroy = () => { player.destroy(); t.el.remove(); };
       queueStart(player, !s.muted && !s.ducked);
@@ -617,7 +633,7 @@
     const key = keyOf(parsed);
     if (streams.some((s) => keyOf(s) === key)) { setChat(key); return toast('Already in multi-view.'); }
     const anyUnmuted = streams.some((s) => !s.muted && (s.platform !== 'kick' || S.showKick));
-    const s = { platform: parsed.platform, id: parsed.id, label: parsed.label || parsed.id, muted: S.singleAudio && anyUnmuted };
+    const s = { platform: parsed.platform, id: parsed.id, label: parsed.label || parsed.id, muted: !!S.startMuted || (S.singleAudio && anyUnmuted) };
     streams.push(s);
     persistStreams();
     if (s.platform === 'twitch') joinChat(s.id);
@@ -1367,7 +1383,14 @@
   const chat = new PrismChat.TwitchChat({
     onState: ({ signedIn }) => { if (signedIn !== undefined) updateChatInput(); },
     onAuthFailed: () => { selfLogin = null; updateChatInput(); },
-    onMessage: (ch, m) => { logUserMessage(ch, m); learnEmotes(m); checkMention(m); queue('twitch:' + ch, () => PrismChat.renderMessage(m, msgOpts(ch))); },
+    onMessage: (ch, m) => {
+      const hide = chatHidden(m);
+      if (hide === 'user') return; // people you've hidden: not shown or kept
+      logUserMessage(ch, m); learnEmotes(m); checkMention(m);
+      if (hide) return;
+      const at = Date.now();
+      queue('twitch:' + ch, () => decorate(PrismChat.renderMessage(m, msgOpts(ch)), m, at));
+    },
     onNotice: (ch, m) => queue('twitch:' + ch, () => {
       const el = h('div', { class: 'msg notice' }, h('div', { text: m.tags['system-msg'] || '' }));
       if (m.text) {
@@ -1395,6 +1418,43 @@
       if (p && id) $(`.msg[data-id="${CSS.escape(id)}"]`, p.el)?.classList.add('deleted');
     }
   });
+
+  // ---- Chat filters, highlights and timestamps ---------------------------------
+  const BOTS = new Set(['nightbot', 'streamelements', 'streamlabs', 'moobot', 'fossabot', 'wizebot', 'sery_bot', 'soundalerts', 'botrixoficial', 'pokemoncommunitygame',
+    'streamstickers', 'kofistreambot', 'commanderroot', 'own3d', 'tangiabot', 'blerp', 'botisimo', 'deepbot', 'phantombot', 'coebot', 'ankhbot', 'vivbot', 'lumiastream',
+    'creatisbot', 'frostytoolsdotcom', 'buttsbot', 'dixperbro', 'songlistbot', 'streamholics', 'sumbot', 'supibot', 'thepositivebot', 'restreambot', 'tipeeebot', 'jeffbot']);
+  const listOf = (v) => String(v || '').split(/[,\n]/).map((w) => w.trim().toLowerCase()).filter(Boolean);
+  let filterCache = null;
+  function filters() {
+    const key = [S.chatHideUsers, S.chatHideWords, S.chatHighlight].join('|');
+    if (filterCache?.key === key) return filterCache;
+    const rx = (words) => (words.length ? new RegExp('(^|[^\\p{L}\\p{N}])(' + words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')($|[^\\p{L}\\p{N}])', 'iu') : null);
+    filterCache = { key, users: new Set(listOf(S.chatHideUsers).map((u) => u.replace(/^@/, ''))), hide: rx(listOf(S.chatHideWords)), hl: rx(listOf(S.chatHighlight)) };
+    return filterCache;
+  }
+  // 'user' (hidden person), true (hidden for another reason) or false
+  function chatHidden(m) {
+    const login = (m.tags.login || m.nick || '').toLowerCase();
+    const f = filters();
+    if (f.users.has(login)) return 'user';
+    if (S.chatHideBots && BOTS.has(login)) return true;
+    if (f.hide && f.hide.test(m.text || '')) return true;
+    return false;
+  }
+  const clockFmt = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
+  function decorate(el, m, at) {
+    const f = filters();
+    if (f.hl && f.hl.test(m.text || '')) el.classList.add('hl-word');
+    if (S.chatFirstTime && m.tags['first-msg'] === '1') { el.classList.add('first-msg'); el.title = 'First message in this chat'; }
+    if (S.chatTimestamps) {
+      const ts = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = clockFmt.format(at || Date.now()).replace(/\s?[AP]M$/i, '');
+      const ref = el.querySelector(':scope > .reply-ref');
+      ref ? ref.after(ts) : el.prepend(ts);
+    }
+    return el;
+  }
 
   function msgOpts(ch) {
     const p = panes.get('twitch:' + ch);
@@ -1428,6 +1488,7 @@
       const at = Number(m.tags['rm-received-ts']) || Date.now();
       if (m.command === 'PRIVMSG') {
         if (m.tags.id && seen.has(m.tags.id)) continue;
+        if (chatHidden({ tags: m.tags, nick: m.nick, text: m.trailing || '' })) continue;
         items.push({ at, msg: { tags: m.tags, nick: m.nick, text: m.trailing || '' }, deleted: m.tags['rm-deleted'] === '1' });
       } else if (m.command === 'USERNOTICE' && m.tags['system-msg']) {
         items.push({ at, notice: m.tags['system-msg'] });
@@ -1436,7 +1497,7 @@
     if (!items.length) return;
     const frag = document.createDocumentFragment();
     for (const it of items) {
-      const el = it.notice ? h('div', { class: 'msg notice', text: it.notice }) : PrismChat.renderMessage(it.msg, msgOpts(ch));
+      const el = it.notice ? h('div', { class: 'msg notice', text: it.notice }) : decorate(PrismChat.renderMessage(it.msg, msgOpts(ch)), it.msg, it.at);
       el.classList.add('history');
       if (it.deleted) el.classList.add('deleted');
       frag.append(el);
@@ -1482,10 +1543,25 @@
       else if (p.stick && !atEnd()) el.scrollTop = el.scrollHeight; // something grew: stay at the bottom
       if (p.stick && chatKey === key) $('#chat-more').hidden = true;
     });
+    // Pause on hover: new messages wait while the mouse is over the chat.
+    el.addEventListener('mouseenter', () => { p.hover = true; });
+    el.addEventListener('mouseleave', () => {
+      p.hover = false;
+      paintPaused(p);
+      if (p.queue.length && !flushScheduled) { flushScheduled = true; requestAnimationFrame(flush); }
+    });
     // images (emotes, badges) finishing loading make lines taller
     el.addEventListener('load', () => { if (p.stick) el.scrollTop = el.scrollHeight; }, true);
     // the chat box changing size (pinned message, hype train, resizing the window)
     new ResizeObserver(() => { if (p.stick) el.scrollTop = el.scrollHeight; }).observe(el);
+  }
+
+  // "Chat paused" note while the mouse holds the chat still.
+  function paintPaused(p) {
+    const note = $('#chat-paused');
+    const on = !!(p.hover && p.stick && S.chatPauseOnHover && p.queue.length && panes.get(chatKey) === p);
+    note.hidden = !on;
+    if (on) note.textContent = `Chat paused · ${p.queue.length} new`;
   }
 
   // Batch new messages once per frame so busy chats stay smooth.
@@ -1502,6 +1578,11 @@
     const max = Number(S.chatMaxLines) || 250;
     for (const [key, p] of panes) {
       if (!p.queue.length) continue;
+      // Chats you can't see aren't drawn: their newest messages wait (only
+      // as many as the chat keeps) and are drawn when you switch to it.
+      if (p.kind === 'twitch' && !p.el.classList.contains('on')) { if (p.queue.length > max) p.queue.splice(0, p.queue.length - max); continue; }
+      // Paused while the mouse is over the chat (so you can read and click).
+      if (p.hover && p.stick && S.chatPauseOnHover) { if (p.queue.length > max * 2) p.queue.splice(0, p.queue.length - max * 2); paintPaused(p); continue; }
       const items = p.queue.splice(0, p.queue.length).slice(-max);
       const frag = document.createDocumentFragment();
       for (const b of items) frag.append(b());
@@ -1691,6 +1772,14 @@
           input.focus();
         } }),
         h('button', { class: 'btn', text: 'Twitch profile', onclick: () => prism.openExternal(`https://www.twitch.tv/${login}`) }),
+        h('button', { class: 'btn', text: 'Hide in chat', title: 'Stop showing their messages (undo in Settings → Chat)', onclick: async () => {
+          const list = listOf(S.chatHideUsers);
+          if (!list.includes(login)) list.push(login);
+          await save({ chatHideUsers: list.join(', ') });
+          for (const m of $$(`.chat-pane .msg[data-user="${CSS.escape(login)}"]`)) m.remove();
+          closeUserCard();
+          toast(`Hidden ${name} in chat`);
+        } }),
         h('span', { class: 'uc-ch muted', text: '#' + ch })));
     // Sit between the (possibly wrapped) tabs and the message box.
     const footer = [$('#chat-form'), $('#chat-signin')].find((el) => !el.hidden);
@@ -1873,6 +1962,8 @@
     }
     const p = s.platform === 'twitch' ? twitchPane(s.id) : webPane(key, s);
     for (const x of panes.values()) x.el.classList.toggle('on', x === p);
+    if (p.queue?.length && !flushScheduled) { flushScheduled = true; requestAnimationFrame(flush); } // draw what waited while hidden
+    if (p.kind === 'twitch') paintPaused(p); else $('#chat-paused').hidden = true;
     if (p.kind === 'twitch' && p.stick) p.el.scrollTop = p.el.scrollHeight;
     $('#chat-more').hidden = true;
     ChatTop.show(s.platform === 'twitch' ? s.id.toLowerCase() : null);
@@ -2019,7 +2110,8 @@
       const us = chat.userState[s.id] || {};
       const mine = { tags: { ...us, emotes: '', 'display-name': us['display-name'] || selfLogin, login: selfLogin }, nick: selfLogin, text };
       logUserMessage(s.id, mine);
-      queue('twitch:' + s.id, () => PrismChat.renderMessage(mine, msgOpts(s.id)));
+      const at = Date.now();
+      queue('twitch:' + s.id, () => decorate(PrismChat.renderMessage(mine, msgOpts(s.id)), mine, at));
       const p = panes.get('twitch:' + s.id);
       if (p) p.stick = true;
       input.value = '';
@@ -2160,6 +2252,7 @@
   function applySetting(k) {
     if (k === 'showKick') { applyKick(); renderAccounts(); }
     if (k === 'liveAlerts') paintBell();
+    if (k === 'evenVolume') for (const t of tiles.values()) t.player?.setEven(!!S.evenVolume);
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
     if (k === 'backgroundAudio' || k === 'duckLevel') {
       for (const x of streams) {

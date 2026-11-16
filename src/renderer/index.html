@@ -90,6 +90,7 @@
           <div id="chat-top" class="chat-top" hidden></div>
           <div id="chat-body" class="chat-body"></div>
           <div id="chat-more" class="chat-more" hidden>New messages below</div>
+          <div id="chat-paused" class="chat-paused" hidden>Chat paused</div>
           <form id="chat-form" class="chat-form" autocomplete="off" hidden>
             <div class="chat-input-row">
               <input id="chat-input" type="text" maxlength="500" spellcheck="true" placeholder="Send a message">
@@ -253,6 +254,20 @@
             <input type="checkbox" class="switch" data-setting="thirdPartyEmotes"></label>
           <label class="row"><span><b>Text size</b></span>
             <input type="range" min="11" max="18" step="1" data-setting="chatFontSize" data-number></label>
+          <label class="row"><span><b>Pause chat while the mouse is over it</b><small>New messages wait so you can read and click names; they appear when you move the mouse away.</small></span>
+            <input type="checkbox" class="switch" data-setting="chatPauseOnHover"></label>
+          <label class="row"><span><b>Show the time on each message</b></span>
+            <input type="checkbox" class="switch" data-setting="chatTimestamps"></label>
+          <label class="row"><span><b>Hide bots</b><small>Nightbot, StreamElements, Streamlabs, Moobot, Fossabot and other common bots.</small></span>
+            <input type="checkbox" class="switch" data-setting="chatHideBots"></label>
+          <label class="row"><span><b>Mark first-time chatters</b><small>Someone's first message in a chat gets a green edge.</small></span>
+            <input type="checkbox" class="switch" data-setting="chatFirstTime"></label>
+          <label class="row col"><span><b>Highlight these words</b><small>Separated by commas, like your character's name or a crew. Matching messages get a colored edge.</small></span>
+            <input type="text" class="input" data-setting="chatHighlight" placeholder="e.g. vinny, besties, raid"></label>
+          <label class="row col"><span><b>Hide messages with these words</b><small>Separated by commas.</small></span>
+            <input type="text" class="input" data-setting="chatHideWords" placeholder="e.g. spoiler"></label>
+          <label class="row col"><span><b>Hide these people</b><small>Twitch names, separated by commas. Their messages aren't shown or kept. You can also hide someone from their name card.</small></span>
+            <input type="text" class="input" data-setting="chatHideUsers" placeholder="e.g. somebody123"></label>
           <label class="row"><span><b>Messages kept per chat</b><small>Lower uses less memory.</small></span>
             <select data-setting="chatMaxLines" data-number>
               <option value="100">100</option><option value="250">250</option><option value="500">500</option><option value="1000">1000</option>
@@ -293,6 +308,12 @@
               <option value="ask">Ask me</option>
               <option value="ignore">Do nothing</option>
             </select></label>
+          <label class="row"><span><b>Streams start muted</b><small>When Prism opens and when you add a stream, nothing plays sound until you pick one (click its speaker).</small></span>
+            <input type="checkbox" class="switch" data-setting="startMuted"></label>
+          <label class="row"><span><b>TikTok starts muted</b><small>Use the speaker button at the top of the TikTok tab to turn sound on.</small></span>
+            <input type="checkbox" class="switch" data-setting="tiktokMuted"></label>
+          <label class="row"><span><b>Even out volume</b><small>Makes loud and quiet Twitch streams sound about the same level.</small></span>
+            <input type="checkbox" class="switch" data-setting="evenVolume"></label>
           <label class="row"><span><b>One stream with sound</b><small>Giving a stream the sound turns the others down.</small></span>
             <input type="checkbox" class="switch" data-setting="singleAudio"></label>
           <label class="row"><span><b>Other streams</b><small>What the rest do when one has the sound: muted, or quiet in the background.</small></span>

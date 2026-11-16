@@ -396,6 +396,11 @@
           d.append(im);
         });
         if (n > 1) { const b = document.createElement('span'); b.className = 'npm-count'; b.textContent = n; d.append(b); }
+        // Name under the picture (shown once you're zoomed in a bit)
+        const nm = document.createElement('span');
+        nm.className = 'npm-name';
+        nm.textContent = (people[0].char || people[0].name) + (n > 1 ? ` +${n - 1}` : '');
+        d.append(nm);
         d.title = `${g.street ? g.street + ', ' : ''}${g.area}\n${people.map((x) => x.name + (x.char ? ' (' + x.char + ')' : '')).join('\n')}`;
         d.onclick = (e) => {
           e.stopPropagation();
@@ -432,6 +437,8 @@
       this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(); });
     }
     moveDots() {
+      const named = this.s >= 0.12;
+      if (named !== this.named) { this.named = named; this.dotsEl.classList.toggle('named', named); }
       for (const d of this.dots || []) {
         const [x, y] = this.toScreen(d.x, d.y);
         d.d.style.transform = `translate(${x}px, ${y}px)`;
