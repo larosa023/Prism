@@ -368,7 +368,8 @@
           }
           quality.textContent = '';
           for (const [v, label] of opts) quality.append(h('option', { value: v, text: label }));
-          quality.value = opts.some(([v]) => v === (s.quality || 'auto')) ? (s.quality || 'auto') : 'auto';
+          const q = s.quality || S.defaultQuality || 'source';
+          quality.value = opts.some(([v]) => v === q) ? q : 'source';
         },
         onFatal: (why) => {
           // Fall back to Twitch's own player for this stream.
@@ -396,7 +397,7 @@
       }
       if (s.platform === 'twitch') extra.append(h('button', { class: 'tile-btn', title: `Save the last ${S.clipSeconds || 60}s as a clip · K`, text: '✂', onclick: () => saveClip(s) }));
       t.behindEl = h('button', { class: 'tile-behind', hidden: true, title: 'Jump back to live · L', onclick: () => { player.goLive(); paintBehind(t); } });
-      player.setQuality(s.quality || 'auto');
+      player.setQuality(s.quality || S.defaultQuality || 'source');
       player.setVolume(s.volume ?? 1);
       media = player.video;
       media.className = 'tile-video';
@@ -2298,6 +2299,7 @@
     if (k === 'liveAlerts') paintBell();
     if (k === 'evenVolume') for (const t of tiles.values()) t.player?.setEven(!!S.evenVolume);
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
+    if (k === 'defaultQuality') for (const t of tiles.values()) if (t.player && !t.stream.quality) t.player.setQuality(S.defaultQuality);
     if (k === 'chatStyle') document.body.classList.toggle('tw-chat', S.chatStyle !== 'prism');
     if (k === 'backgroundAudio' || k === 'duckLevel') {
       for (const x of streams) {

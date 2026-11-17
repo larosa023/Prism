@@ -146,7 +146,7 @@
         liveSyncDurationCount: 3,
         liveMaxLatencyDurationCount: 8,
         // Pick a quality that fits the tile, so small tiles don't decode 1080p.
-        capLevelToPlayerSize: true,
+        capLevelToPlayerSize: this.quality === 'auto',
         startLevel: -1,
         manifestLoadingMaxRetry: 1,
         levelLoadingMaxRetry: 4,

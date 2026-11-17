@@ -1,6 +1,13 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.16.2',
+    date: 'Nov 17, 2026',
+    items: [
+      'Streams now open at their highest quality (Source) instead of "Auto (fit tile)". To save your graphics card on small tiles, set "Stream quality when opened" to "Fit tile" in Settings. You can still pick a quality on each stream, and Prism remembers it.'
+    ]
+  },
+  {
     version: '0.16.1',
     date: 'Nov 16, 2026',
     items: [
