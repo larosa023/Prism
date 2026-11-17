@@ -1,6 +1,13 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.16.1',
+    date: 'Nov 16, 2026',
+    items: [
+      'The Twitch-style chat now uses your theme\'s colors (Midnight, OLED, Slate, Forest, Sunset, Rose or Light) for its background, text, message box and Chat button, instead of Twitch\'s fixed grey.'
+    ]
+  },
+  {
     version: '0.16.0',
     date: 'Nov 16, 2026',
     items: [

@@ -937,18 +937,16 @@ body:not(.tw-chat) .chat-actions:not(:has(#points:not([hidden]))) { display: non
 .notice-head { font-weight: 400; }
 .notice-head b { font-weight: 700; }
 
+/* Colors follow the app theme (Midnight, OLED, Slate, Light...). */
 body.tw-chat {
-  --tw-bg: #18181b; --tw-text: #efeff1; --tw-muted: #adadb8; --tw-hover: rgba(83,83,95,.32); --tw-line: rgba(255,255,255,.1);
-  --tw-input: rgba(83,83,95,.38); --tw-purple: #9147ff; --tw-notice: rgba(255,255,255,.03);
+  --tw-bg: var(--bg-2); --tw-text: var(--text); --tw-muted: var(--muted); --tw-hover: var(--hover); --tw-line: var(--line);
+  --tw-input: var(--bg-3); --tw-purple: #9147ff; --tw-accent: var(--accent); --tw-notice: rgba(255,255,255,.03);
 }
-:root[data-theme="light"] body.tw-chat {
-  --tw-bg: #ffffff; --tw-text: #0e0e10; --tw-muted: #53535f; --tw-hover: rgba(83,83,95,.12); --tw-line: rgba(0,0,0,.1);
-  --tw-input: rgba(14,14,16,.06); --tw-notice: rgba(0,0,0,.03);
-}
+:root[data-theme="light"] body.tw-chat { --tw-notice: rgba(0,0,0,.03); }
 .tw-chat .chat { background: var(--tw-bg); color: var(--tw-text); font-family: Inter, Roobert, "Helvetica Neue", Helvetica, Arial, sans-serif; border-left-color: var(--tw-line); }
 .tw-chat .chat-tabs { border-bottom-color: var(--tw-line); padding: 6px 8px 0; }
 .tw-chat .chat-tab { font-family: inherit; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; color: var(--tw-muted); }
-.tw-chat .chat-tab.on { background: transparent; color: var(--tw-text); box-shadow: inset 0 -2px var(--tw-purple); border-radius: 0; }
+.tw-chat .chat-tab.on { background: transparent; color: var(--tw-text); box-shadow: inset 0 -2px var(--tw-accent); border-radius: 0; }
 .tw-chat .chat-pane { padding: 10px 0; }
 .tw-chat .chat-pane::-webkit-scrollbar-thumb { background: rgba(127,127,140,.45); }
 .tw-chat .msg { font-size: var(--chat-font); line-height: calc(var(--chat-font) * 1.54); padding: 5px 20px; border-radius: 0; color: var(--tw-text); }
@@ -986,13 +984,13 @@ body.tw-chat {
 .tw-chat .chat-form #chat-input { height: 40px; padding: 0 40px 0 10px; background: var(--tw-input); border: 2px solid transparent; border-radius: 6px;
   color: var(--tw-text); font-family: inherit; font-size: 13px; transition: border-color .1s, background .1s; }
 .tw-chat .chat-form #chat-input:hover { border-color: rgba(127,127,140,.5); }
-.tw-chat .chat-form #chat-input:focus { border-color: #a970ff; background: var(--tw-bg); }
+.tw-chat .chat-form #chat-input:focus { border-color: var(--tw-accent); background: var(--tw-bg); }
 .tw-chat .emote-btn { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; font-size: 17px; color: var(--tw-text); }
 .tw-chat .chat-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .tw-chat .chat-actions .points-pill { background: transparent; border-color: transparent; color: var(--tw-text); }
-.tw-chat .chat-actions .chat-send { display: block; margin-left: auto; height: 30px; padding: 0 10px; border: 0; border-radius: 4px; background: var(--tw-purple); color: #fff;
+.tw-chat .chat-actions .chat-send { display: block; margin-left: auto; height: 30px; padding: 0 10px; border: 0; border-radius: 4px; background: var(--tw-accent); color: #fff;
   font: 600 13px Inter, Roobert, sans-serif; cursor: pointer; }
-.tw-chat .chat-send:hover { background: #772ce8; }
+.tw-chat .chat-send:hover { filter: brightness(1.12); }
 .tw-chat .chat-signin { border-top: 0; color: var(--tw-muted); padding: 10px 20px 14px; }
 .tw-chat .chat-signin a { color: #bf94ff; }
 .tw-chat .chat-more { background: rgba(0,0,0,.75); bottom: 96px; font-family: inherit; }
