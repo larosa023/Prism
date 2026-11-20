@@ -1,6 +1,18 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.17.0',
+    date: 'Nov 20, 2026',
+    items: [
+      'Predictions in chat: when a streamer starts a prediction it shows at the top of their chat with each side\'s percent, points, people, payout ratio and top predictor, plus a countdown. Pick an amount (10, 100, 1K, 5K, All or your own) and press Predict. You can add more later, and you\'ll see what you won or lost.',
+      'Polls in chat: vote with one click and watch the results fill in.',
+      'Prediction and poll cards fold to one line (click the header) and fold by themselves once you\'ve predicted or voted.',
+      'Mod tools: in channels you moderate, each message has delete, 10-minute time out and ban buttons, like on Twitch. Time outs and bans can be undone from the message that pops up. The name card has 1m, 10m, 1h, 1d and 1w time outs, Ban, Unban, and a delete button on each of their messages. (Settings → Chat to turn the buttons off.)',
+      'NoPixel map trails: see where a streamer has been in the last hour. Hover anyone on the map or in the list to see their trail, or turn on "Trails" to see everyone\'s. The watch card lists their last few areas too.',
+      'NoPixel "together" alerts: get a notification when two or more NoPixel streamers you follow are live in the same area. Click it to jump to them on the map. (Settings → NoPixel to turn it off.)'
+    ]
+  },
+  {
     version: '0.16.2',
     date: 'Nov 17, 2026',
     items: [

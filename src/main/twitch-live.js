@@ -489,6 +489,19 @@ function init(context) {
   ipcMain.handle('twitch:stream-info', (_e, logins) => streamInfo(logins));
   ipcMain.handle('twitch:category-streams', (_e, game, force) => categoryStreams(game, force));
   ipcMain.handle('nopixel:streams', (_e, force) => nopixel(force));
+  // "Together on NoPixel": people you follow in the same area.
+  ipcMain.handle('nopixel:together-alert', async (_e, a) => {
+    if (!Notification.isSupported()) return false;
+    const n = new Notification({
+      title: String(a.title || '').slice(0, 120),
+      body: String(a.body || '').slice(0, 300),
+      icon: a.avatar ? await avatarImage(a.avatar) : appIcon(),
+      silent: !settings.get().liveAlertSound
+    });
+    n.on('click', () => { ctx.focus(); ctx.send('nopixel:show-area', { area: a.area, logins: a.logins }); });
+    n.show();
+    return true;
+  });
   ipcMain.handle('nopixel:remove', (_e, login) => rosterRemove(login));
   ipcMain.handle('nopixel:add', (_e, login) => rosterAdd(login));
   // First check seeds the list quietly, so you don't get alerts for everyone

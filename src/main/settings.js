@@ -64,6 +64,9 @@ const DEFAULTS = {
   chatMaxLines: 250,
   chatFontSize: 13,
   chatStyle: 'twitch',      // 'twitch' (looks like Twitch's own chat) or 'prism'
+  chatModIcons: true,       // delete / time out / ban buttons on chat lines (channels you moderate)
+  npTrails: false,          // NoPixel map: show everyone's last hour
+  npTogetherAlerts: true,   // NoPixel: tell me when people I follow are in the same area
   chatPauseOnHover: true,   // hold chat still while the mouse is over it
   chatTimestamps: false,
   chatHideBots: true,       // Nightbot, StreamElements and other bots

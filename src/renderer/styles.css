@@ -995,3 +995,71 @@ body.tw-chat {
 .tw-chat .chat-signin a { color: #bf94ff; }
 .tw-chat .chat-more { background: rgba(0,0,0,.75); bottom: 96px; font-family: inherit; }
 .tw-chat .chat-paused { bottom: 96px; background: rgba(0,0,0,.75); color: #fff; border: 0; font-family: inherit; }
+
+/* ---- Predictions and polls (top of chat) ---------------------------------- */
+.pred, .poll { border-radius: 8px; background: var(--bg-3); border: 1px solid var(--line); overflow: hidden; }
+.act-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer; user-select: none; }
+.act-head .act-left { margin-left: auto; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.act-chev { color: var(--muted); transition: transform .15s; }
+.folded .act-chev { transform: rotate(-90deg); }
+.folded .act-body { display: none; }
+.act-body { padding: 0 10px 8px; display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto; }
+.act-title { font-weight: 700; font-size: 13px; line-height: 1.3; }
+.pred-o { --oc: #387aff; padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--oc) 10%, transparent); border: 1px solid color-mix(in srgb, var(--oc) 35%, transparent); }
+.pred-o.mine { box-shadow: inset 3px 0 var(--oc); }
+.pred-o.won { background: color-mix(in srgb, var(--oc) 22%, transparent); }
+.pred-o.lost { opacity: .55; }
+.pred-o-top { display: flex; align-items: baseline; gap: 8px; }
+.pred-o-t { flex: 1; min-width: 0; font-size: 13px; color: var(--oc); word-break: break-word; }
+.pred-pct { font-weight: 800; font-size: 15px; color: var(--oc); font-variant-numeric: tabular-nums; }
+.pred-bar { height: 4px; border-radius: 2px; background: rgba(127,127,140,.2); margin: 4px 0; overflow: hidden; }
+.pred-bar i { display: block; height: 100%; background: var(--oc); transition: width .4s; }
+.pred-o-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--muted); }
+.pred-mine { color: var(--text); font-weight: 600; }
+.pred-go { margin-left: auto; border: 0; border-radius: 4px; color: #fff; font-weight: 700; font-size: 12px; padding: 3px 10px; cursor: pointer; }
+.pred-go:hover { filter: brightness(1.12); }
+.pred-go:disabled { opacity: .6; cursor: default; }
+.pred-foot { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.pred-quick { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pred-quick .chip { border: 1px solid var(--line); background: var(--bg-2); color: var(--text); border-radius: 999px; padding: 2px 9px; font-size: 11.5px; cursor: pointer; }
+.pred-quick .chip:hover { border-color: var(--accent); }
+.pred-amt { width: 84px; margin-left: auto; height: 26px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg-2); color: var(--text); }
+.pred-result { font-weight: 700; font-size: 12.5px; padding: 4px 8px; border-radius: 6px; }
+.pred-result.good { background: rgba(0,219,132,.15); color: #00c878; }
+.pred-result.bad { background: rgba(235,4,0,.12); color: #ff6b6b; }
+.poll-c { position: relative; display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--bg-2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; overflow: hidden; }
+.poll-c:not(:disabled):hover { border-color: var(--accent); }
+.poll-c:disabled { cursor: default; }
+.poll-fill { position: absolute; inset: 0 auto 0 0; background: color-mix(in srgb, var(--accent) 22%, transparent); transition: width .4s; }
+.poll-c.won .poll-fill, .poll-c.mine .poll-fill { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+.poll-t { position: relative; flex: 1; min-width: 0; font-weight: 600; word-break: break-word; }
+.poll-n { position: relative; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chat-top { max-height: 60%; overflow-y: auto; }
+
+/* ---- Mod tools ------------------------------------------------------------ */
+.mod-icons { display: inline-flex; gap: 2px; margin-right: 4px; vertical-align: middle; }
+.mod-i { width: 20px; height: 20px; padding: 2px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: inline-grid; place-items: center; }
+.mod-i svg { width: 16px; height: 16px; }
+.mod-i:hover { background: rgba(127,127,140,.22); color: var(--text); }
+.mod-ban:hover { color: #ff5a5a; }
+.uc-del { float: right; opacity: 0; margin-left: 6px; }
+.uc-list .msg:hover .uc-del { opacity: 1; }
+.uc-mod { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px 10px 8px; border-top: 1px solid var(--line); }
+.uc-mod .chip { border: 1px solid var(--line); background: var(--bg-3); color: var(--text); border-radius: 999px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+.uc-mod .chip:hover { border-color: var(--accent); }
+.uc-mod .chip.danger { border-color: rgba(235,4,0,.5); color: #ff6b6b; }
+.uc-mod .chip.danger:hover { background: rgba(235,4,0,.15); }
+
+/* ---- NoPixel map trails ---------------------------------------------------- */
+.npm-trails { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.npm-trail line { stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 6 6; filter: drop-shadow(0 0 1.5px rgba(0,0,0,.7)); }
+.npm-trail.on line { stroke-width: 5; stroke-dasharray: none; filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 3px rgba(0,0,0,.6)); }
+.npm-trail circle { fill: currentColor; stroke: #fff; stroke-width: 1.5; pointer-events: auto; cursor: default; }
+.npm-trails-btn.on { border-color: var(--accent); color: var(--text); }
+.npm-card-trail { font-size: 12px; color: var(--muted); padding: 0 10px 6px; line-height: 1.5; }
+.npm-card-trail span { color: var(--text); }
+
+.act-head .act-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pred:not(.folded) .act-sum, .poll:not(.folded) .act-sum { color: transparent; }
+.act-head .act-left { margin-left: 0; flex: none; }

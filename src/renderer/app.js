@@ -1390,7 +1390,7 @@
       logUserMessage(ch, m); learnEmotes(m); checkMention(m);
       if (hide) return;
       const at = Date.now();
-      queue('twitch:' + ch, () => decorate(PrismChat.renderMessage(m, msgOpts(ch)), m, at));
+      queue('twitch:' + ch, () => decorate(PrismChat.renderMessage(m, msgOpts(ch)), m, at, ch));
     },
     onNotice: (ch, m) => {
       const msg = { tags: m.tags, nick: m.tags.login, text: m.text };
@@ -1465,7 +1465,46 @@
     return false;
   }
   const clockFmt = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit' });
-  function decorate(el, m, at) {
+  // ---- Mod tools (channels you moderate) ---------------------------------------
+  const isMod = (ch) => /(^|,)(moderator|broadcaster)\//.test(chat.userState?.[ch]?.badges || '');
+  const isStaffish = (badges) => /(^|,)(moderator|broadcaster|staff|admin)\//.test(badges || '');
+  const MOD_ICONS = {
+    del: '<svg viewBox="0 0 20 20"><path fill="currentColor" d="M12 2H8v1H3v2h14V3h-5V2zM4 7v9a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7h-2v9H6V7H4zm7 0H9v8h2V7z"/></svg>',
+    time: '<svg viewBox="0 0 20 20"><path fill="currentColor" d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 14a6 6 0 1 1 0-12 6 6 0 0 1 0 12zm1-10H9v5l4 2.4 1-1.7-3-1.7V6z"/></svg>',
+    ban: '<svg viewBox="0 0 20 20"><path fill="currentColor" d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm-6 8c0-1.3.4-2.5 1.1-3.5l8.4 8.4A6 6 0 0 1 4 10zm10.9 3.5L6.5 5.1A6 6 0 0 1 14.9 13.5z"/></svg>'
+  };
+  const fmtDur = (sec) => (sec >= 86400 ? sec / 86400 + 'd' : sec >= 3600 ? sec / 3600 + 'h' : sec >= 60 ? sec / 60 + 'm' : sec + 's');
+  async function modAction(ch, a) {
+    const channelId = panes.get('twitch:' + ch)?.roomId;
+    if (!channelId) return toast('Chat is still connecting, try again in a moment.');
+    const r = await prism.twitchMod({ ...a, channelId });
+    if (!r.ok) return toast(r.error || 'Twitch refused.');
+    if (a.action === 'delete') toast('Message deleted.');
+    else if (a.action === 'unban') toast(`Unbanned ${a.name || a.user}.`);
+    else toast(a.action === 'ban' ? `Banned ${a.name || a.user}.` : `Timed out ${a.name || a.user} for ${fmtDur(a.seconds)}.`,
+      { label: 'Undo', run: () => modAction(ch, { action: 'unban', user: a.user, name: a.name }) });
+  }
+  function modIcons(ch, m) {
+    const user = (m.tags.login || m.nick || '').toLowerCase();
+    if (!user || user === selfLogin || isStaffish(m.tags.badges)) return null;
+    const name = m.tags['display-name'] || user;
+    const b = (k, title, a) => {
+      const x = h('button', { class: 'mod-i mod-' + k, title });
+      x.innerHTML = MOD_ICONS[k];
+      x.onclick = (e) => { e.stopPropagation(); modAction(ch, { ...a, user, name }); };
+      return x;
+    };
+    return h('span', { class: 'mod-icons' },
+      m.tags.id ? b('del', 'Delete message', { action: 'delete', messageId: m.tags.id }) : null,
+      b('time', `Time out ${name} for 10 minutes`, { action: 'timeout', seconds: 600 }),
+      b('ban', `Ban ${name}`, { action: 'ban' }));
+  }
+
+  function decorate(el, m, at, ch) {
+    if (ch && S.chatModIcons !== false && chat.signedIn && isMod(ch)) {
+      const icons = modIcons(ch, m);
+      if (icons) { const ref = el.querySelector(':scope > .reply-ref'); ref ? ref.after(icons) : el.prepend(icons); }
+    }
     const f = filters();
     if (f.hl && f.hl.test(m.text || '')) el.classList.add('hl-word');
     if (S.chatFirstTime && m.tags['first-msg'] === '1') { el.classList.add('first-msg'); el.title = 'First message in this chat'; }
@@ -1539,7 +1578,7 @@
     if (!items.length) return;
     const frag = document.createDocumentFragment();
     for (const it of items) {
-      const el = it.notice ? h('div', { class: 'msg notice', text: it.notice }) : decorate(PrismChat.renderMessage(it.msg, msgOpts(ch)), it.msg, it.at);
+      const el = it.notice ? h('div', { class: 'msg notice', text: it.notice }) : decorate(PrismChat.renderMessage(it.msg, msgOpts(ch)), it.msg, it.at, ch);
       el.classList.add('history');
       if (it.deleted) el.classList.add('deleted');
       frag.append(el);
@@ -1768,6 +1807,7 @@
     const list = cardEl.querySelector('.uc-list');
     const nearBottom = list ? list.scrollTop + list.clientHeight >= list.scrollHeight - 30 : true;
     const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const canMod = chat.signedIn && isMod(ch) && login !== selfLogin && !isStaffish(u?.badges);
     const row = (x) => {
       const line = PrismChat.renderMessage(x.m, msgOpts(ch));
       line.querySelector('.name')?.remove();
@@ -1776,6 +1816,12 @@
       line.prepend(h('span', { class: 'uc-time', text: fmtTime(x.at) }));
       if (x.history) line.classList.add('history');
       if (x.deleted) line.classList.add('deleted');
+      if (canMod && x.m.tags.id && !x.deleted) {
+        const del = h('button', { class: 'mod-i mod-del uc-del', title: 'Delete this message' });
+        del.innerHTML = MOD_ICONS.del;
+        del.onclick = (e) => { e.stopPropagation(); modAction(ch, { action: 'delete', messageId: x.m.tags.id }); };
+        line.append(del);
+      }
       return line;
     };
 
@@ -1825,7 +1871,13 @@
           closeUserCard();
           toast(`Hidden ${name} in chat`);
         } }),
-        h('span', { class: 'uc-ch muted', text: '#' + ch })));
+        h('span', { class: 'uc-ch muted', text: '#' + ch })),
+      canMod ? h('div', { class: 'uc-mod' },
+        h('span', { class: 'muted small', text: 'Time out' }),
+        ...[[60, '1m'], [600, '10m'], [3600, '1h'], [86400, '1d'], [604800, '1w']].map(([sec, label]) =>
+          h('button', { class: 'chip', text: label, title: `Time out ${name} for ${label}`, onclick: (e) => { e.stopPropagation(); modAction(ch, { action: 'timeout', seconds: sec, user: login, name }); } })),
+        h('button', { class: 'chip danger', text: 'Ban', onclick: (e) => { e.stopPropagation(); modAction(ch, { action: 'ban', user: login, name }); } }),
+        h('button', { class: 'chip', text: 'Unban', onclick: (e) => { e.stopPropagation(); modAction(ch, { action: 'unban', user: login, name }); } })) : null);
     // Sit between the (possibly wrapped) tabs and the message box.
     const footer = [$('#chat-form'), $('#chat-signin')].find((el) => !el.hidden);
     cardEl.style.top = ($('#chat-tabs').offsetHeight + 6) + 'px';
@@ -2020,8 +2072,12 @@
 
   // ---- Above chat: the pinned message and a running hype train --------------
   const ChatTop = (() => {
-    let login = null, data = null, timer = null, tick = null;
+    let login = null, data = null, timer = null, tick = null, act = null, actTimer = null;
     const hidden = new Set(); // pinned messages you closed
+    const folded = new Set(); // prediction / poll cards you folded
+    const voted = new Map();  // poll id -> choice you voted for
+    let amount = 100;         // points to predict with (remembered)
+    let busy = false;
     async function load() {
       const l = login;
       if (!l) return;
@@ -2030,10 +2086,116 @@
       data = r;
       paint();
     }
+    // Predictions and polls: checked every 30 s, every 4 s while one is open.
+    async function loadAct() {
+      clearTimeout(actTimer);
+      const l = login;
+      if (!l) return;
+      const r = await prism.twitchInteract(l).catch(() => null);
+      if (l !== login) return;
+      if (r && !r.error) { act = r; if (!busy) paint(); }
+      const open = act?.prediction?.status === 'ACTIVE' || act?.prediction?.status === 'LOCKED' || act?.poll?.status === 'ACTIVE';
+      actTimer = setTimeout(loadAct, document.hidden ? 60000 : open ? 4000 : 30000);
+    }
+    const PRED_COLORS = { BLUE: '#387aff', PINK: '#f5009b' };
+    const short = (n) => (n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'K' : String(n));
+    function card(kind, id, head, right, body, summary) {
+      const el = h('div', { class: kind + (folded.has(id) ? ' folded' : '') },
+        h('div', { class: 'act-head', title: 'Fold / unfold', onclick: () => { folded.has(id) ? folded.delete(id) : folded.add(id); el.classList.toggle('folded'); } },
+          h('span', { text: head }), h('span', { class: 'act-sum', text: summary || '' }), right, h('span', { class: 'act-chev', text: '▾' })),
+        body);
+      return el;
+    }
+    function predictionCard(p) {
+      const total = p.outcomes.reduce((a, o) => a + o.points, 0);
+      const users = p.outcomes.reduce((a, o) => a + o.users, 0);
+      const left = h('span', { class: 'act-left' });
+      const timeText = () => {
+        if (p.status === 'ACTIVE') {
+          const end = new Date(p.createdAt).getTime() + p.window * 1000;
+          const ms = end - Date.now();
+          return ms > 0 ? 'Closes in ' + fmtClock(ms / 1000) : 'Closing…';
+        }
+        return { LOCKED: 'Locked · waiting for the result', RESOLVED: 'Result is in', CANCELED: 'Canceled · points refunded', RESOLVE_PENDING: 'Deciding…' }[p.status] || p.status;
+      };
+      left.textContent = timeText();
+      const canBet = p.status === 'ACTIVE' && act.signedIn;
+      const amt = h('input', { class: 'pred-amt', type: 'number', min: 1, step: 10, value: amount, title: 'Points to predict' });
+      amt.addEventListener('input', () => { amount = Math.max(1, Math.floor(Number(amt.value) || 0)); });
+      amt.addEventListener('focus', () => { busy = true; });
+      amt.addEventListener('blur', () => { busy = false; });
+      const rows = p.outcomes.map((o, i) => {
+        const color = PRED_COLORS[o.color] || (i ? PRED_COLORS.PINK : PRED_COLORS.BLUE);
+        const pct = total ? Math.round((o.points / total) * 100) : 0;
+        const ratio = o.points ? '1:' + (total / o.points).toFixed(2) : '—';
+        const mine = p.mine?.outcome === o.id;
+        const won = p.winner === o.id;
+        const btn = canBet && (!p.mine || mine) ? h('button', { class: 'pred-go', style: `background:${color}`, text: mine ? 'Add' : 'Predict', onclick: async (e) => {
+          e.stopPropagation();
+          const pts = Math.min(amount, act.balance ?? amount);
+          if (!(pts > 0)) return toast("You don't have any channel points here yet.");
+          e.target.disabled = true;
+          const r = await prism.twitchPredict({ eventId: p.id, outcomeId: o.id, points: pts });
+          if (r.ok) { folded.add(p.id); toast(`Predicted ${pts.toLocaleString()} points on "${o.title}".`); } else toast(r.error || "Couldn't predict.");
+          loadAct();
+        } }) : null;
+        return h('div', { class: 'pred-o' + (won ? ' won' : '') + (p.winner && !won ? ' lost' : '') + (mine ? ' mine' : ''), style: `--oc:${color}` },
+          h('div', { class: 'pred-o-top' },
+            h('b', { class: 'pred-o-t', text: (won ? '✓ ' : '') + o.title }),
+            h('span', { class: 'pred-pct', text: pct + '%' })),
+          h('div', { class: 'pred-bar' }, h('i', { style: `width:${pct}%` })),
+          h('div', { class: 'pred-o-meta' },
+            h('span', { text: `${short(o.points)} pts · ${short(o.users)} people · ${ratio}` }),
+            mine ? h('span', { class: 'pred-mine', text: `You: ${p.mine.points.toLocaleString()}` }) : o.top ? h('span', { class: 'muted', text: `Top: ${o.top.name} ${short(o.top.points)}` }) : null,
+            btn));
+      });
+      const foot = canBet ? h('div', { class: 'pred-foot' },
+        h('span', { class: 'muted', text: act.balance != null ? `You have ${act.balance.toLocaleString()} points` : '' }),
+        h('div', { class: 'pred-quick' }, ...[10, 100, 1000, 5000].map((n) => h('button', { class: 'chip', text: short(n), onclick: (e) => { e.stopPropagation(); amount = n; amt.value = n; } })),
+          act.balance ? h('button', { class: 'chip', text: 'All', onclick: (e) => { e.stopPropagation(); amount = act.balance; amt.value = act.balance; } }) : null, amt))
+        : p.status === 'ACTIVE' && !act.signedIn ? h('div', { class: 'muted small', text: 'Sign in on the Twitch tab to predict.' }) : null;
+      if (p.mine && p.winner) {
+        const won = p.mine.outcome === p.winner;
+        const winPts = p.outcomes.find((o) => o.id === p.winner)?.points || 1;
+        rows.push(h('div', { class: 'pred-result ' + (won ? 'good' : 'bad'), text: won ? `You won ${Math.floor(p.mine.points * (total / winPts)).toLocaleString()} points!` : `You lost ${p.mine.points.toLocaleString()} points.` }));
+      }
+      const sum = p.title + ' · ' + p.outcomes.map((o) => `${o.title} ${total ? Math.round((o.points / total) * 100) : 0}%`).join(' / ');
+      const el = card('pred', p.id, '🔮', left, h('div', { class: 'act-body' }, h('div', { class: 'act-title', text: p.title }), ...rows, foot,
+        h('div', { class: 'muted small', text: `${short(total)} points from ${short(users)} people` })), sum);
+      return { el, tick: () => { left.textContent = timeText(); } };
+    }
+    function pollCard(p) {
+      const left = h('span', { class: 'act-left' });
+      const timeText = () => (p.status === 'ACTIVE' && p.endsAt ? (p.endsAt - Date.now() > 0 ? fmtClock((p.endsAt - Date.now()) / 1000) + ' left' : 'Ending…') : 'Ended');
+      left.textContent = timeText();
+      const total = p.choices.reduce((a, c) => a + c.votes, 0);
+      const top = Math.max(...p.choices.map((c) => c.votes));
+      const mine = voted.get(p.id);
+      const can = p.status === 'ACTIVE' && act.signedIn && !mine;
+      const rows = p.choices.map((c) => {
+        const pct = total ? Math.round((c.votes / total) * 100) : 0;
+        return h('button', { class: 'poll-c' + (mine === c.id ? ' mine' : '') + (p.status !== 'ACTIVE' && c.votes === top && top ? ' won' : ''), disabled: !can,
+          title: can ? 'Vote for this' : '', onclick: async (e) => {
+            e.stopPropagation();
+            const r = await prism.twitchPollVote({ pollId: p.id, choiceId: c.id });
+            if (r.ok || /already/i.test(r.error || '')) { voted.set(p.id, c.id); folded.add(p.id); toast(r.ok ? `Voted "${c.title}".` : r.error); paint(); } else toast(r.error || "Couldn't vote.");
+            loadAct();
+          } },
+          h('i', { class: 'poll-fill', style: `width:${pct}%` }),
+          h('span', { class: 'poll-t', text: (mine === c.id ? '✓ ' : '') + c.title }),
+          h('span', { class: 'poll-n', text: `${pct}% (${short(c.votes)})` }));
+      });
+      const lead = [...p.choices].sort((a, b) => b.votes - a.votes)[0];
+      const el = card('poll', p.id, '📊', left, h('div', { class: 'act-body' }, h('div', { class: 'act-title', text: p.title }), ...rows,
+        h('div', { class: 'muted small', text: `${short(p.total || total)} voters` + (p.status === 'ACTIVE' && !act.signedIn ? ' · sign in on the Twitch tab to vote' : '') })),
+        p.title + (lead && total ? ` · ${lead.title} ${Math.round((lead.votes / total) * 100)}%` : ''));
+      return { el, tick: () => { left.textContent = timeText(); } };
+    }
     function paint() {
       const el = $('#chat-top');
       el.textContent = '';
       clearInterval(tick); tick = null;
+      const ticks = [];
       const hype = data?.hype && (!data.hype.endsAt || new Date(data.hype.endsAt) > Date.now()) ? data.hype : null;
       const pin = data?.pinned && !hidden.has(data.pinned.id) && (!data.pinned.endsAt || new Date(data.pinned.endsAt) > Date.now()) ? data.pinned : null;
       if (hype) {
@@ -2045,7 +2207,7 @@
           left.textContent = hype.endsAt ? fmtClock(ms / 1000) + ' left' : '';
         };
         upd();
-        tick = setInterval(upd, 1000);
+        ticks.push(upd);
         el.append(h('div', { class: 'hype' + (hype.golden ? ' golden' : '') },
           h('div', { class: 'hype-row' }, h('b', { text: (hype.golden ? 'Golden Kappa Train' : 'Hype Train') + ` · Level ${hype.level}` }), h('span', { text: pct + '%' }), left),
           h('div', { class: 'hype-bar' }, h('i', { style: `width:${pct}%` }))));
@@ -2058,6 +2220,9 @@
             h('button', { class: 'pin-x', title: 'Hide', text: '✕', onclick: () => { hidden.add(pin.id); paint(); } })),
           text));
       }
+      if (act?.prediction) { const c = predictionCard(act.prediction); el.append(c.el); ticks.push(c.tick); }
+      if (act?.poll) { const c = pollCard(act.poll); el.append(c.el); ticks.push(c.tick); }
+      if (ticks.length) tick = setInterval(() => { for (const f of ticks) f(); }, 1000);
       el.hidden = !el.childElementCount;
     }
     return {
@@ -2065,11 +2230,12 @@
       show(newLogin) {
         if (newLogin === login) return;
         login = newLogin;
-        data = null;
+        data = null; act = null;
         paint();
-        clearInterval(timer);
+        clearInterval(timer); clearTimeout(actTimer);
         if (!login) return;
         load();
+        loadAct();
         timer = setInterval(load, 30000);
       }
     };
@@ -2620,6 +2786,74 @@
     npLiveList = () => live;
     npLocOf = (l) => locations.get(l);
     const locations = new Map(); // login -> { area, region, at, stale }
+    // Where each streamer has been in the last hour (for the map's trails),
+    // kept across restarts.
+    const TRAIL_MS = 60 * 60 * 1000;
+    const trails = new Map(); // login -> [{ area, street, at }]
+    try { for (const [l, pts] of Object.entries(JSON.parse(localStorage.getItem('prism-np-trails') || '{}'))) trails.set(l, pts); } catch {}
+    let trailSave = null;
+    function noteTrail(login, loc) {
+      if (!loc?.area || loc.stale) return;
+      const now = Date.now();
+      const pts = (trails.get(login) || []).filter((p) => now - p.at < TRAIL_MS);
+      const last = pts[pts.length - 1];
+      if (last && last.area === loc.area && (last.street || null) === (loc.street || null)) last.at = loc.at || now;
+      else pts.push({ area: loc.area, street: loc.street || null, at: loc.at || now });
+      trails.set(login, pts.slice(-40));
+      clearTimeout(trailSave);
+      trailSave = setTimeout(() => {
+        const keep = {};
+        for (const [l, ps] of trails) { const f = ps.filter((p) => Date.now() - p.at < TRAIL_MS); if (f.length) keep[l] = f; else trails.delete(l); }
+        try { localStorage.setItem('prism-np-trails', JSON.stringify(keep)); } catch {}
+      }, 5000);
+    }
+    const trailOf = (login) => (trails.get(login) || []).filter((p) => Date.now() - p.at < TRAIL_MS);
+
+    // "Together" alerts: people you follow, live on NoPixel, in the same area.
+    const Together = (() => {
+      const alerted = new Map(); // "a,b,c" -> time
+      let timer = null, primed = false;
+      function followedLive() {
+        const fol = new Set((followingCache || []).map((x) => x.login));
+        return live.filter((x) => fol.has(x.login));
+      }
+      function run() {
+        if (!S.npTogetherAlerts || !S.liveAlerts) return;
+        const now = Date.now();
+        const byArea = new Map();
+        for (const x of followedLive()) {
+          const l = locations.get(x.login);
+          if (!l?.area || l.stale || now - (l.at || 0) > 6 * 60 * 1000) continue;
+          if (!byArea.has(l.area)) byArea.set(l.area, []);
+          byArea.get(l.area).push(x);
+        }
+        for (const [area, people] of byArea) {
+          if (people.length < 2) continue;
+          people.sort((a, b) => b.viewers - a.viewers);
+          const key = people.map((p) => p.login).sort().join(',');
+          // Someone new joining the group counts as news; the same group
+          // moving around together doesn't, for 45 minutes.
+          if (now - (alerted.get(key) || 0) < 45 * 60 * 1000) continue;
+          alerted.set(key, now);
+          if (!primed) continue; // groups already together when Prism opened: no alert
+          const names = people.map((p) => p.char ? `${p.name} (${p.char})` : p.name);
+          const list = names.length > 3 ? names.slice(0, 3).join(', ') + ` and ${names.length - 3} more` : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+          prism.nopixelTogetherAlert({ title: `Together in ${area}`, body: `${list} are in ${area} right now. Click to see them on the map.`, avatar: people[0].avatar, area, logins: people.map((p) => p.login) });
+          toast(`${people.length} people you follow are together in ${area}.`, { label: 'Show', run: () => showArea(area) });
+        }
+        primed = true;
+      }
+      return { check() { clearTimeout(timer); timer = setTimeout(run, 3000); }, followedLive };
+    })();
+    function showArea(area) {
+      showView('rp');
+      view = 'map';
+      mapSel = area;
+      render();
+      const pos = window.NPMap.place(area);
+      if (pos) setTimeout(() => window.NPMap.view()?.flyTo(pos[0], pos[1], null, 0.45), 120);
+    }
+    prism.onNopixelShowArea((d) => showArea(d.area));
     const NP = /no\s*pixel|\bnp\s*(?:v|5\.0|4\.0|wl|public)\b|\[np\]|\|\s*np\b/i;
     const REGION_ORDER = ['Los Santos', 'Vinewood Hills & west coast', 'Blaine County', 'Paleto & north', 'At sea'];
 
@@ -2976,6 +3210,13 @@
       if (!mapSel && hidden.length) list.append(h('div', { class: 'npm-sub', text: `HUD hidden right now (${hidden.length})` }), ...hidden.sort((a, b) => b.viewers - a.viewers).map(row));
       if (!list.childElementCount) list.append(h('div', { class: 'muted small', text: 'Reading where everyone is…' }));
       side.append(list);
+      // Grey ("everyone else") trails vanish on the map: give those a bright color of their own.
+      const VIVID = ['#ff4d6d', '#ffb703', '#2ec4b6', '#8338ec', '#fb5607', '#3a86ff', '#06d6a0', '#ff006e'];
+      const trailColor = (x) => (x.group?.key === 'civ' ? VIVID[[...x.login].reduce((a, c) => a + c.charCodeAt(0), 0) % VIVID.length] : x.color);
+      const paintTrails = () => window.NPMap.view()?.setTrails(shownList.map((x) => ({ login: x.login, color: trailColor(x), pts: trailOf(x.login) })), !!S.npTrails);
+      drawn.then(paintTrails);
+      legend.append(h('button', { class: 'npm-chip npm-trails-btn' + (S.npTrails ? ' on' : ''), title: "Show where everyone has been in the last hour (hover anyone to see just theirs)",
+        onclick: async (e) => { const b = e.currentTarget; await save({ npTrails: !S.npTrails }); b.classList.toggle('on', !!S.npTrails); paintTrails(); } }, '〰 Trails'));
       drawn.then((off) => { if (off.length && !mapSel) side.append(h('div', { class: 'muted small npm-off', text: 'Not on the map: ' + off.map((a) => `${a.area} (${a.people.length})`).join(', ') })); });
     }
 
@@ -2984,7 +3225,8 @@
       if (!mapPopup) return;
       mapPopup.player?.destroy();
       mapPopup.el.remove();
-      window.NPMap.view()?.setPopup(null);
+      const v = window.NPMap.view();
+      if (v) { v.popupLogin = null; v.setPopup(null); v.renderTrails(); }
       document.querySelectorAll('.npm-li.on').forEach((r) => r.classList.remove('on'));
       mapPopup = null;
     }
@@ -3027,6 +3269,14 @@
       mapPopup = { login: x.login, player, el };
       listRowsOn(x.login);
       const v = window.NPMap.view();
+      if (v) { v.popupLogin = x.login; v.renderTrails(); }
+      const tr = trailOf(x.login);
+      if (tr.length > 1) {
+        const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'now' : m + 'm ago'; };
+        el.insertBefore(h('div', { class: 'npm-card-trail', title: 'Where they have been in the last hour' },
+          '〰 ', ...tr.slice(-4).flatMap((p, i, arr) => [h('span', { text: p.area, title: (p.street ? p.street + ', ' : '') + p.area + ' · ' + ago(p.at) }), i < arr.length - 1 ? ' → ' : ''])),
+          el.querySelector('.npm-card-actions'));
+      }
       if (pos && v) v.setPopup(el, pos);
       else { el.classList.add('npm-card-free'); document.querySelector('.npm-host .npm-map')?.append(el); }
     }
@@ -3092,7 +3342,7 @@
       render();
       // Read everyone's area in the background, biggest streams first.
       const known = await prism.nopixelLocate([...live].sort((a, b) => b.viewers - a.viewers).map((x) => x.login)).catch(() => ({}));
-      for (const [l, v] of Object.entries(known || {})) locations.set(l, v);
+      for (const [l, v] of Object.entries(known || {})) { locations.set(l, v); noteTrail(l, v); }
       locStatus = await prism.nopixelLocateStatus().catch(() => locStatus);
       render();
     }
@@ -3123,6 +3373,8 @@
     let renderTimer = null;
     prism.onNopixelLocation((d) => {
       locations.set(d.login, d);
+      noteTrail(d.login, d);
+      Together.check();
       if (typeof paintAllTileInfo === 'function') paintAllTileInfo();
       if (currentView !== 'rp') return;
       // Streamers view: just update that card's area (rebuilding the whole
@@ -3141,13 +3393,19 @@
     // Keep reading areas in the background (for scene chips in multi-view),
     // when you're watching Twitch streams and it's turned on in Settings.
     async function background() {
-      if (!S.npBackgroundAreas || currentView === 'rp') return;
-      if (!streams.some((x) => x.platform === 'twitch')) return;
+      if (currentView === 'rp') return;
+      const wantAll = S.npBackgroundAreas && streams.some((x) => x.platform === 'twitch');
+      const wantFollowed = S.npTogetherAlerts && S.liveAlerts && (followingCache || []).length > 1;
+      if (!wantAll && !wantFollowed) return;
       const r = await prism.nopixelStreams(false).catch(() => null);
       if (!r || r.error) return;
       live = r.live || live; offline = r.offline || offline; fetchedAt = r.at || fetchedAt;
-      const known = await prism.nopixelLocate([...live].sort((a, b) => b.viewers - a.viewers).map((x) => x.login)).catch(() => ({}));
-      for (const [l, v] of Object.entries(known || {})) locations.set(l, v);
+      // Just the people you follow, unless scene chips need everyone.
+      const who = wantAll ? live : Together.followedLive();
+      if (who.length < (wantAll ? 1 : 2)) return;
+      const known = await prism.nopixelLocate([...who].sort((a, b) => b.viewers - a.viewers).map((x) => x.login)).catch(() => ({}));
+      for (const [l, v] of Object.entries(known || {})) { locations.set(l, v); noteTrail(l, v); }
+      Together.check();
       if (typeof paintAllTileInfo === 'function') paintAllTileInfo();
     }
     setTimeout(background, 20000);

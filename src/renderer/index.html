@@ -219,6 +219,8 @@
           <h3>NoPixel</h3>
           <label class="row"><span><b>Read areas in the background</b><small>Every few minutes, so multi-view can show where your NoPixel streams are and who else is in the same scene. Uses a little CPU.</small></span>
             <input type="checkbox" class="switch" data-setting="npBackgroundAreas"></label>
+          <label class="row"><span><b>Tell me when people I follow are together</b><small>A notification when two or more NoPixel streamers you follow are live in the same area, so you can catch the scene from several sides. Click it to see them on the map. Needs notifications on (the bell).</small></span>
+            <input type="checkbox" class="switch" data-setting="npTogetherAlerts"></label>
         </div>
 
         <div class="card">
@@ -262,6 +264,8 @@
               <option value="twitch">Twitch</option>
               <option value="prism">Prism (compact)</option>
             </select></label>
+          <label class="row"><span><b>Mod buttons on chat messages</b><small>In channels you moderate: delete, 10-minute time out and ban, right on each message (like Twitch). Longer time outs are on the name card.</small></span>
+            <input type="checkbox" class="switch" data-setting="chatModIcons"></label>
           <label class="row"><span><b>Pause chat while the mouse is over it</b><small>New messages wait so you can read and click names; they appear when you move the mouse away.</small></span>
             <input type="checkbox" class="switch" data-setting="chatPauseOnHover"></label>
           <label class="row"><span><b>Show the time on each message</b></span>

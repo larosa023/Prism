@@ -136,7 +136,11 @@
       this.tip = document.createElement('div');
       this.tip.className = 'npm-tip';
       this.tip.hidden = true;
-      this.el.append(this.canvas, this.dotsEl, this.tip);
+      // Trails: where streamers have been in the last hour (drawn under the pictures).
+      this.trailsEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      this.trailsEl.setAttribute('class', 'npm-trails');
+      this.trails = []; this.trailFocus = null; this.trailsAll = false;
+      this.el.append(this.canvas, this.trailsEl, this.dotsEl, this.tip);
       this.cx = 200; this.cy = -1900; this.s = 0; // center (map space) and pixels per metre
       this.groups = []; this.selected = null; this.onSelect = () => {};
       this.hidden = new Set(); // place kinds turned off
@@ -409,15 +413,80 @@
           const person = (login && people.find((p) => p.login === login)) || people[0];
           if (this.onPick) this.onPick(g, person, pos); else this.onSelect(g.area);
         };
-        d.onmouseenter = () => this.onHover?.(people.map((p) => p.login), true);
-        d.onmouseleave = () => this.onHover?.(people.map((p) => p.login), false);
+        d.onmouseenter = () => { this.onHover?.(people.map((p) => p.login), true); this.focusTrails(people.map((p) => p.login)); };
+        d.onmouseleave = () => { this.onHover?.(people.map((p) => p.login), false); this.focusTrails(null); };
         this.dotsEl.append(d);
         this.dots.push({ d, x: pos[0], y: -pos[1], size, logins: people.map((p) => p.login) });
+      }
+    }
+    // Trails: [{ login, color, pts: [{ area, street, at }] }] oldest first.
+    setTrails(list, all) {
+      this.trails = [];
+      for (const t of list || []) {
+        const pts = [];
+        for (const p of t.pts) {
+          const pos = place(p.area, p.street);
+          if (!pos) continue;
+          const last = pts[pts.length - 1];
+          if (last && last.x === pos[0] && last.y === -pos[1]) { last.at = p.at; continue; }
+          pts.push({ x: pos[0], y: -pos[1], at: p.at, label: (p.street ? p.street + ', ' : '') + p.area });
+        }
+        if (pts.length > 1) this.trails.push({ login: t.login, color: t.color || '#9b6bff', pts });
+      }
+      this.trailsAll = !!all;
+      this.renderTrails();
+    }
+    focusTrails(logins) { this.trailFocus = logins && logins.length ? new Set(logins) : null; this.renderTrails(); }
+    renderTrails() {
+      const svg = this.trailsEl;
+      svg.textContent = '';
+      this.trailSegs = [];
+      const NS = 'http://www.w3.org/2000/svg';
+      const now = Date.now(), HOUR = 3600 * 1000;
+      const focus = this.trailFocus || (this.popupLogin ? new Set([this.popupLogin]) : null);
+      for (const t of this.trails) {
+        const on = focus?.has(t.login);
+        if (!on && !this.trailsAll) continue;
+        const g = document.createElementNS(NS, 'g');
+        g.setAttribute('class', 'npm-trail' + (on ? ' on' : ''));
+        g.style.color = t.color;
+        for (let i = 1; i < t.pts.length; i++) {
+          const a = t.pts[i - 1], b = t.pts[i];
+          const fresh = 1 - Math.min(1, (now - b.at) / HOUR);
+          const ln = document.createElementNS(NS, 'line');
+          ln.style.opacity = ((on ? 0.55 : 0.35) + fresh * (on ? 0.45 : 0.4)).toFixed(2);
+          g.append(ln);
+          this.trailSegs.push({ el: ln, a, b });
+        }
+        if (on) for (let i = 0; i < t.pts.length - 1; i++) {
+          const p = t.pts[i];
+          const c = document.createElementNS(NS, 'circle');
+          c.setAttribute('r', 4);
+          const tt = document.createElementNS(NS, 'title');
+          const mins = Math.round((now - p.at) / 60000);
+          tt.textContent = `${p.label} · ${mins < 1 ? 'just now' : mins + ' min ago'}`;
+          c.append(tt);
+          g.append(c);
+          this.trailSegs.push({ el: c, a: p });
+        }
+        svg.append(g);
+      }
+      this.moveTrails();
+    }
+    moveTrails() {
+      for (const sg of this.trailSegs || []) {
+        const [ax, ay] = this.toScreen(sg.a.x, sg.a.y);
+        if (sg.b) {
+          const [bx, by] = this.toScreen(sg.b.x, sg.b.y);
+          sg.el.setAttribute('x1', ax.toFixed(1)); sg.el.setAttribute('y1', ay.toFixed(1));
+          sg.el.setAttribute('x2', bx.toFixed(1)); sg.el.setAttribute('y2', by.toFixed(1));
+        } else { sg.el.setAttribute('cx', ax.toFixed(1)); sg.el.setAttribute('cy', ay.toFixed(1)); }
       }
     }
     // Light up the marker(s) for these streamers (from hovering the list).
     highlight(logins, on) {
       for (const m of this.dots || []) if (m.logins.some((l) => logins.includes(l))) m.d.classList.toggle('hl', on);
+      this.focusTrails(on ? logins : null);
     }
     // A card pinned to a spot on the map; it moves with the map.
     setPopup(el, pos) {
@@ -437,6 +506,7 @@
       this.raf = requestAnimationFrame(() => { this.raf = 0; this.paint(); });
     }
     moveDots() {
+      this.moveTrails();
       const named = this.s >= 0.12;
       if (named !== this.named) { this.named = named; this.dotsEl.classList.toggle('named', named); }
       for (const d of this.dots || []) {

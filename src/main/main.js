@@ -10,6 +10,7 @@ require('./twitch-stream');
 const twitchLive = require('./twitch-live');
 const twitchVods = require('./twitch-vods');
 const twitchPoints = require('./twitch-points');
+const twitchInteract = require('./twitch-interact');
 const extras = require('./extras');
 const npLocations = require('./np-locations');
 const hooks = require('./request-hooks');
@@ -392,6 +393,7 @@ app.whenReady().then(async () => {
   extras.init({ send });
   npLocations.init({ send });
   twitchPoints.init({ send });
+  twitchInteract.init();
   twitchVods.init();
   twitchLive.init({
     send,
