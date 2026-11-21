@@ -1,6 +1,14 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.2',
+    date: 'Nov 21, 2026',
+    items: [
+      'Fixed Twitch streams freezing for ~10 seconds when an ad break starts. Prism now has the ad-free backup stream ready before any ad (instead of fetching it one option at a time when the ad hits), and joins the backup and the stream together smoothly, skipping the few seconds the backup repeats. In testing the freeze went from about 6 seconds to none.',
+      'The end of an ad break is smooth too: no more reload (and short hitch) when the stream comes back.'
+    ]
+  },
+  {
     version: '0.18.1',
     date: 'Nov 21, 2026',
     items: [

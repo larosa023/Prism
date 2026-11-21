@@ -308,14 +308,12 @@
 
     adNotice(kind) {
       if (kind === 'ended') {
-        // The ad-free backup stream is usually 480p at best. Once the ad
-        // break is over, reload at the quality you picked (otherwise the
-        // picture could stay low while the menu still says 1080p).
-        this.adUntil = 0;
+        // The ad break is over. The stream carries on from the backup without
+        // a reload (Prism joins the two smoothly); if the picture stays at the
+        // backup's lower quality, checkQuality() brings yours back.
+        this.adUntil = Date.now() + 4000;
         clearTimeout(this.adTimer);
         this.onStatus('');
-        // (and back at live: the backup stream can run a little behind).
-        setTimeout(() => { if (!this.destroyed) { this.applyQuality(); if (!this.rewound) setTimeout(() => this.goLive(), 800); } }, 1500);
         return;
       }
       this.adUntil = Date.now() + 12000;

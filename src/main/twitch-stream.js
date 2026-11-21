@@ -117,30 +117,111 @@ function stripAds(text) {
   return { text: out.join('\n'), removed };
 }
 
+// The ad-free backup streams' lists of qualities, kept ready so an ad break
+// doesn't have to wait for them (each takes a Twitch pass plus a request).
+async function backupMaster(login, state, type) {
+  let b = state.backups.get(type);
+  if (b && Date.now() - b.at < 4 * 60 * 1000) return b;
+  if (b?.pending) return b.pending;
+  const pending = (async () => {
+    try {
+      const tok = await accessToken(login, type, type !== 'autoplay');
+      const m = await fetchText(usherUrl(login, tok));
+      if (m.status !== 200) return null;
+      const fresh = { variants: parseMaster(m.text), at: Date.now() };
+      state.backups.set(type, fresh);
+      return fresh;
+    } catch { return null; } finally { if (state.backups.get(type)?.pending) state.backups.delete(type); }
+  })();
+  state.backups.set(type, { ...(b || {}), pending, at: b?.at || 0 });
+  return pending;
+}
+function prewarmBackups(login, state) {
+  for (const type of BACKUP_PLAYER_TYPES) backupMaster(login, state, type).catch(() => {});
+}
+
+// Ask every backup at once and take the first ad-free one (in order of
+// preference), instead of trying them one after another.
 async function backupMediaPlaylist(login, state, currentUrl) {
   const target = state.variants.get(currentUrl) || { res: '', bw: 0 };
-  for (const type of BACKUP_PLAYER_TYPES) {
-    try {
-      let b = state.backups.get(type);
-      if (!b || Date.now() - b.at > 5 * 60 * 1000) {
-        const tok = await accessToken(login, type, type !== 'autoplay');
-        const m = await fetchText(usherUrl(login, tok));
-        if (m.status !== 200) continue;
-        b = { variants: parseMaster(m.text), at: Date.now() };
-        state.backups.set(type, b);
-      }
-      const v = closestVariant(b.variants, target);
-      if (!v) continue;
-      const media = await fetchText(v.url);
-      if (media.status === 200 && !media.text.includes(AD_SIGNIFIER)) return media.text;
-    } catch {}
+  const tries = BACKUP_PLAYER_TYPES.map(async (type) => {
+    const b = await backupMaster(login, state, type);
+    const v = b?.variants && closestVariant(b.variants, target);
+    if (!v) return null;
+    const media = await fetchText(v.url);
+    return media.status === 200 && !media.text.includes(AD_SIGNIFIER) ? { type, text: media.text } : null;
+  });
+  for (const t of tries) {
+    const r = await t.catch(() => null);
+    if (r) return r;
   }
   return null;
 }
 
+// ---- One smooth stream out of two ------------------------------------------
+// During an ad break the player is fed a different copy of the stream (the
+// ad-free backup), whose segments are numbered differently and start a few
+// seconds in the past. Fed in raw, that made the player stall for ~10 s. So
+// every segment the player sees gets Prism's own running number, video
+// already shown (by its timestamp) is skipped, and a "discontinuity" marks
+// each switch so the player carries on without a hitch.
+function parsePlaylist(text) {
+  const lines = text.split('\n');
+  const header = [];
+  const segs = [];
+  let tags = [];
+  let started = false;
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line) continue;
+    if (/^#EXT-X-(MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE|DISCONTINUITY$|ENDLIST|TWITCH-PREFETCH)/.test(line)) continue;
+    if (line.startsWith('#EXT-X-DATERANGE') && line.includes(AD_SIGNIFIER)) continue;
+    if (!started && !line.startsWith('#EXTINF') && !line.startsWith('#EXT-X-PROGRAM-DATE-TIME')) { header.push(line); continue; }
+    started = true;
+    if (!line.startsWith('#')) {
+      const inf = tags.find((t) => t.startsWith('#EXTINF')) || '';
+      const pdtTag = tags.find((t) => t.startsWith('#EXT-X-PROGRAM-DATE-TIME:'));
+      segs.push({ uri: line, tags, dur: parseFloat(inf.slice(8)) || 2, pdt: pdtTag ? Date.parse(pdtTag.slice(25)) || 0 : 0, ad: !inf.includes(LIVE_SIGNIFIER) });
+      tags = [];
+    } else tags.push(line);
+  }
+  return { header, segs };
+}
+function splice(lvl, text, src) {
+  const { header, segs } = parsePlaylist(text);
+  for (const sg of segs) {
+    if (lvl.seqOf.has(sg.uri) || sg.ad) continue;
+    // Already played this moment (from the other copy of the stream)?
+    if (sg.pdt && lvl.lastPdt && sg.pdt <= lvl.lastPdt + 250) continue;
+    const seq = lvl.next++;
+    lvl.seqOf.set(sg.uri, seq);
+    if (lvl.src && lvl.src !== src) lvl.disc.push(seq);
+    lvl.src = src;
+    if (sg.pdt) lvl.lastPdt = sg.pdt;
+    lvl.segs.push({ seq, uri: sg.uri, tags: sg.tags });
+  }
+  // Keep the newest ~30 s worth, and forget older numbers.
+  while (lvl.segs.length > 15) lvl.seqOf.delete(lvl.segs.shift().uri);
+  const win = lvl.segs.slice(-8);
+  if (!win.length) return text;
+  const first = win[0].seq;
+  const discBefore = lvl.disc.filter((d) => d < first).length;
+  const out = [...header.filter((l) => l !== '#EXTM3U'), `#EXT-X-MEDIA-SEQUENCE:${first}`, `#EXT-X-DISCONTINUITY-SEQUENCE:${discBefore}`];
+  for (const sg of win) {
+    if (lvl.disc.includes(sg.seq)) out.push('#EXT-X-DISCONTINUITY');
+    out.push(...sg.tags, sg.uri);
+  }
+  return '#EXTM3U\n' + out.join('\n') + '\n';
+}
+function levelState(state, url) {
+  let lvl = state.levels.get(url);
+  if (!lvl) { lvl = { seqOf: new Map(), segs: [], disc: [], next: 1, lastPdt: 0, src: null }; state.levels.set(url, lvl); }
+  return lvl;
+}
+
 function stateFor(login) {
   let s = channels.get(login);
-  if (!s) { s = { variants: new Map(), backups: new Map(), inAd: false, recent: [], seen: new Set() }; channels.set(login, s); }
+  if (!s) { s = { variants: new Map(), backups: new Map(), levels: new Map(), inAd: false, recent: [], seen: new Set() }; channels.set(login, s); }
   return s;
 }
 
@@ -177,7 +258,10 @@ ipcMain.handle('twitch:stream-master', async (_e, login) => {
     const state = stateFor(login);
     state.variants.clear();
     state.backups.clear();
+    state.levels.clear();
     for (const v of parseMaster(m.text)) state.variants.set(v.url, v);
+    // Get the ad-free backups ready now, so an ad break doesn't wait on them.
+    setTimeout(() => prewarmBackups(login, state), 3000);
     return { master: m.text };
   } catch (e) {
     return { error: e.message };
@@ -191,18 +275,22 @@ ipcMain.handle('twitch:stream-playlist', async (_e, login, url) => {
   try {
     const r = await fetchText(url);
     if (r.status !== 200) return { status: r.status };
+    const lvl = levelState(state, url);
     if (!r.text.includes(AD_SIGNIFIER)) {
       const adEnded = state.inAd;
       state.inAd = false;
       rememberSegments(state, r.text);
-      return adEnded ? { text: r.text, adEnded: true } : { text: r.text };
+      // Keep the backups fresh for the next ad break.
+      if (BACKUP_PLAYER_TYPES.some((t) => Date.now() - (state.backups.get(t)?.at || 0) > 4 * 60 * 1000)) prewarmBackups(login, state);
+      const text = splice(lvl, r.text, 'main');
+      return adEnded ? { text, adEnded: true } : { text };
     }
     state.inAd = true;
     const backup = await backupMediaPlaylist(login, state, url);
-    if (backup) { rememberSegments(state, backup); return { text: backup, ad: 'swapped' }; }
-    const stripped = stripAds(r.text).text;
-    rememberSegments(state, stripped);
-    return { text: stripped, ad: 'stripped' };
+    if (backup) { rememberSegments(state, backup.text); return { text: splice(lvl, backup.text, 'backup:' + backup.type), ad: 'swapped' }; }
+    // No backup without ads: drop the ad segments (the picture waits).
+    const text = splice(lvl, r.text, 'main');
+    return { text, ad: 'stripped' };
   } catch (e) {
     return { error: e.message };
   }
