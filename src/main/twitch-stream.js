@@ -6,7 +6,6 @@
 // backup playlist that has none, or drop the ad segments as a last resort.
 const { ipcMain, net, session } = require('electron');
 const crypto = require('crypto');
-const settings = require('./settings');
 
 const CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const TOKEN_HASH = 'ed230aa1e33e07eebb8928504583da78a5173989fadfb1ac94be06a04f3cdbe9';
@@ -139,24 +138,6 @@ async function backupMediaPlaylist(login, state, currentUrl) {
   return null;
 }
 
-// Low latency, like Twitch's own player (and streamlink's --twitch-low-latency):
-// Twitch lists the next one or two video segments ahead of time as
-// "#EXT-X-TWITCH-PREFETCH" lines. Turning those into regular segments lets the
-// player fetch them as they're being made, a few seconds sooner.
-function withPrefetch(text) {
-  if (!text.includes('#EXT-X-TWITCH-PREFETCH:')) return text;
-  const lines = text.split('\n');
-  let dur = 2;
-  const out = [];
-  for (const line of lines) {
-    if (line.startsWith('#EXTINF:')) dur = parseFloat(line.slice(8)) || dur;
-    if (line.startsWith('#EXT-X-TWITCH-PREFETCH:')) {
-      out.push(`#EXTINF:${dur.toFixed(3)},live`, line.slice('#EXT-X-TWITCH-PREFETCH:'.length).trim());
-    } else out.push(line);
-  }
-  return out.join('\n');
-}
-
 function stateFor(login) {
   let s = channels.get(login);
   if (!s) { s = { variants: new Map(), backups: new Map(), inAd: false, recent: [], seen: new Set() }; channels.set(login, s); }
@@ -214,8 +195,7 @@ ipcMain.handle('twitch:stream-playlist', async (_e, login, url) => {
       const adEnded = state.inAd;
       state.inAd = false;
       rememberSegments(state, r.text);
-      const text = settings.get().lowLatency === false ? r.text : withPrefetch(r.text);
-      return adEnded ? { text, adEnded: true } : { text };
+      return adEnded ? { text: r.text, adEnded: true } : { text: r.text };
     }
     state.inAd = true;
     const backup = await backupMediaPlaylist(login, state, url);

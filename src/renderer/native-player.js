@@ -17,7 +17,7 @@
   // Playlists (master + media) load through Prism's backend, which handles
   // tokens and ads. Video segments load directly.
   // Seconds behind the newest video to play at, and to jump back from.
-  const liveSync = (kind) => (kind === 'twitch' && window.PRISM_LOW_LATENCY !== false ? 5 : 8);
+  const liveSync = (kind) => (kind === 'twitch' && window.PRISM_LOW_LATENCY !== false ? 6 : 9);
   const LIVE_MAX_BEHIND = 16;
 
   function makePlaylistLoader(login, onAd) {
@@ -151,13 +151,11 @@
         backBufferLength: vod ? 10 : this.rewindSeconds,
         // How far behind live to play, in seconds. (Not in "segments": Twitch
         // says its segments are up to 6 s long though they're 2 s, which used
-        // to put Prism ~18 s behind and only catch up at ~48 s.) With low
-        // latency on, the newest segments are Twitch's early ("prefetch")
-        // ones, which puts Prism about where twitch.tv is.
+        // to put Prism ~18 s behind and only catch up at ~48 s.)
         ...(vod ? {} : { liveSyncDuration: liveSync(this.kind), liveMaxLatencyDuration: LIVE_MAX_BEHIND }),
         // Drifted behind (after a stall): play a little faster to catch up,
         // or jump ahead if it's more than LIVE_MAX_BEHIND.
-        maxLiveSyncPlaybackRate: 1.08,
+        maxLiveSyncPlaybackRate: 1.05,
         // Pick a quality that fits the tile, so small tiles don't decode 1080p.
         capLevelToPlayerSize: this.quality === 'auto',
         startLevel: -1,
@@ -171,6 +169,8 @@
         this.setLive(true);
         this.onStatus('');
         this.onLevels(data.levels.map((l, i) => ({ i, height: l.height, fps: Math.round(l.frameRate || 0), name: l.name })));
+        // Start at the picked quality (not a low guess that looks blurry at first).
+        if (this.quality !== 'auto') { try { hls.startLevel = this.wantedLevel(); } catch {} }
         this.applyQuality();
         this.video.play().catch(() => {});
       });
@@ -283,17 +283,21 @@
       }
     }
 
-    // Fell well behind live without you rewinding (a stall, a slow network
-    // moment, the PC waking up): jump back to live after 8 seconds of it.
+    // Fell behind live without you rewinding (after a stall): skip ahead,
+    // but only through video that's already downloaded, so it never has to
+    // stop and load. (Much further behind, the player jumps by itself.)
     checkDrift() {
       const v = this.video;
       if (!this.hls || !this.isLive() || this.rewound || this.suspended || v.paused || this.destroyed) { this.driftSince = 0; return; }
       if (this.adUntil && Date.now() < this.adUntil) { this.driftSince = 0; return; }
-      if (this.behind() < 5) { this.driftSince = 0; return; }
+      if (this.behind() < 6) { this.driftSince = 0; return; }
       if (!this.driftSince) { this.driftSince = Date.now(); return; }
-      if (Date.now() - this.driftSince < 8000) return;
+      if (Date.now() - this.driftSince < 10000) return;
       this.driftSince = 0;
-      this.goLive();
+      const b = v.buffered;
+      const end = b.length ? b.end(b.length - 1) : 0;
+      const target = Math.min(this.liveEdge(), end - 2);
+      if (target > v.currentTime + 2) v.currentTime = target;
     }
 
     adNotice(kind) {

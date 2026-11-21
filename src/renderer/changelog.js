@@ -1,6 +1,15 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.17.4',
+    date: 'Nov 20, 2026',
+    items: [
+      'Fixed streams showing "Reconnecting…", stuttering and coming back blurry since 0.17.3. The early "prefetch" video that 0.17.3 used doesn\'t work reliably outside Twitch\'s own player, so it\'s gone. Streams still play much closer to live than before 0.17.3 (about 6 seconds of cushion instead of ~18).',
+      'Catching up to live no longer jumps ahead into video that hasn\'t downloaded yet (which caused short stops). It only skips through video that\'s already there.',
+      'After a reconnect, the stream starts at the quality you picked instead of a blurry low one.'
+    ]
+  },
+  {
     version: '0.17.3',
     date: 'Nov 20, 2026',
     items: [
