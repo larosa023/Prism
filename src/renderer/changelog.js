@@ -1,6 +1,15 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.0',
+    date: 'Nov 21, 2026',
+    items: [
+      'The live list ("Following" button and the sidebar) now shows everyone you follow on Twitch and on Kick who is live, with a Twitch or Kick logo on each. (Kick follows come from the Kick tab, so sign in there.)',
+      'Someone live on both shows once with both logos and their combined viewers (hover for each site\'s count). Click them to open Twitch, or click a logo to open that site.',
+      'People you follow on one site are also checked on the other, so a Twitch follow who is live on Kick (or the other way round) shows both logos too.'
+    ]
+  },
+  {
     version: '0.17.6',
     date: 'Nov 21, 2026',
     items: [

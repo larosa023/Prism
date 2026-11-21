@@ -485,6 +485,16 @@ function init(context) {
   ctx = context;
   scanProgress = (p) => ctx.send('nopixel:progress', p);
   watchTwitchHeaders();
+  // Which of these channel names are live on Twitch (for people you follow on
+  // Kick who also stream on Twitch).
+  ipcMain.handle('twitch:live-check', async (_e, logins) => {
+    const list = [...new Set((logins || []).map((l) => String(l).toLowerCase()).filter((l) => /^[a-z0-9_]{2,25}$/.test(l)))].slice(0, 100);
+    if (!list.length) return {};
+    const r = await gql(`query($l: [String!]) { users(logins: $l) { login displayName profileImageURL(width: 70) stream { viewersCount title game { displayName } } } }`, { l: list });
+    const out = {};
+    for (const u of r.data?.users || []) if (u?.stream) out[u.login] = { login: u.login, name: u.displayName, avatar: u.profileImageURL, viewers: u.stream.viewersCount || 0, title: u.stream.title || '', game: u.stream.game?.displayName || '' };
+    return out;
+  });
   ipcMain.handle('twitch:following', async () => { const r = await fetchFollowing(); if (!r.error) lastFollowLive = r.live; return r; });
   ipcMain.handle('twitch:stream-info', (_e, logins) => streamInfo(logins));
   ipcMain.handle('twitch:category-streams', (_e, game, force) => categoryStreams(game, force));

@@ -2364,34 +2364,39 @@
     const list = $('#live-list');
     list.textContent = '';
     list.append(h('div', { class: 'chat-empty', text: 'Loading…' }));
-    const res = await prism.twitchFollowing();
+    const [res] = await Promise.all([prism.twitchFollowing(), refreshKickFollowing(true)]);
     followingCache = res.live || [];
+    await checkOtherSite();
     renderSideLive();
     list.textContent = '';
+    const all = liveMerged();
+    const goTab = (v, label) => h('a', { href: '#', text: label, onclick: (e) => { e.preventDefault(); livePanel.hidden = true; showView(v); } });
     if (!res.signedIn) {
       if (res.error) list.append(h('div', { class: 'err-detail', text: res.error }));
-      list.append(h('div', { class: 'chat-empty' }, 'Sign in on the ',
-        h('a', { href: '#', text: 'Twitch tab', onclick: (e) => { e.preventDefault(); livePanel.hidden = true; showView('twitch'); } }),
-        ' to see who you follow.'));
-      return;
+      list.append(h('div', { class: 'chat-empty' }, 'Sign in on the ', goTab('twitch', 'Twitch tab'), ' to see who you follow on Twitch.'));
     }
-    if (!res.live.length) {
-      list.append(h('div', { class: 'chat-empty' },
+    if (S.showKick && kickSignedIn === false) list.append(h('div', { class: 'chat-empty small' }, 'Sign in on the ', goTab('kick', 'Kick tab'), ' to see who you follow on Kick too.'));
+    if (!all.length) {
+      if (res.signedIn) list.append(h('div', { class: 'chat-empty' },
         res.error ? "Couldn't load your follows from Twitch. Try Refresh." : 'Nobody you follow is live right now.',
         res.error ? h('div', { class: 'err-detail', text: 'Twitch said: ' + res.error }) : null));
       return;
     }
-    for (const c of res.live) {
-      list.append(h('div', { class: 'live-item', 'data-login': c.login, onclick: () => addStream({ platform: 'twitch', id: c.login.toLowerCase(), label: c.name }) },
-        h('img', { src: c.avatar, alt: '' }),
-        h('div', { class: 'meta' }, h('div', {}, h('b', { text: c.name }), c.game ? ' · ' + c.game : ''), h('div', { class: 't', text: c.title })),
-        h('div', { class: 'v', text: c.viewers >= 1000 ? (c.viewers / 1000).toFixed(1) + 'K' : String(c.viewers) })));
+    for (const e of all) {
+      const pfs = ['twitch', 'kick'].filter((pf) => e[pf]);
+      list.append(h('div', { class: 'live-item', 'data-keys': pfs.map((pf) => pf + ':' + e[pf].login.toLowerCase()).join(' '), title: liveTip(e), onclick: () => openLive(e, 'twitch') },
+        h('img', { src: e.avatar || '', alt: '' }),
+        h('div', { class: 'meta' },
+          h('div', {}, h('span', { class: 'pf-badges' }, ...pfs.map((pf) => logo(pf, pfs.length > 1 ? `Open on ${pf === 'kick' ? 'Kick' : 'Twitch'}` : null, (ev) => { ev.stopPropagation(); openLive(e, pf); }))),
+            h('b', { text: e.name }), e.game ? ' · ' + e.game : ''),
+          h('div', { class: 't', text: e.title })),
+        h('div', { class: 'v', text: e.viewers >= 1000 ? (e.viewers / 1000).toFixed(1) + 'K' : String(e.viewers) })));
     }
     markLive();
   }
   function markLive() {
-    const added = new Set(streams.filter((s) => s.platform === 'twitch').map((s) => s.id));
-    $$('.live-item').forEach((el) => el.classList.toggle('added', added.has(el.dataset.login.toLowerCase())));
+    const added = new Set(streams.map((s) => s.platform + ':' + s.id));
+    $$('.live-item').forEach((el) => el.classList.toggle('added', (el.dataset.keys || '').split(' ').some((k) => added.has(k))));
   }
 
   // =========================================================================
@@ -3520,23 +3525,110 @@
   });
 
   // Live channels you follow, in the sidebar (avatars when narrow, names when wide).
+  // ---- Who you follow that's live, on Twitch and Kick ---------------------
+  // Twitch follows come from your Twitch sign-in, Kick follows from the Kick
+  // tab's. Someone live on both shows once, with both logos. People you
+  // follow on one site are also checked on the other (same name).
+  let kickLiveCache = [], kickSignedIn = null, kickAt = 0;
+  const otherSite = new Map(); // 'kick:name' / 'twitch:name' -> { at, live }
+  const LOGO = {
+    twitch: '<svg viewBox="0 0 24 24"><path fill="#9146ff" d="M4 2 2.5 5.5V20h5v2.5h2.8L13 20h4l5-5V2H4zm16 12-3 3h-5l-2.7 2.7V17H5.5V4H20v10z"/><path fill="#9146ff" d="M16 7h2v5.5h-2zm-5 0h2v5.5h-2z"/></svg>',
+    kick: '<svg viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#53fc18"/><path fill="#0b0e0f" d="M5.5 4.5h4.2v4.3h1.9V6.6h2.1V4.5h4.8v5.2h-2.1v2.1h-2.1v.4h2.1v2.1h2.1v5.2h-4.8v-2.1h-2.1v-2.2H9.7v4.3H5.5z"/></svg>'
+  };
+  const logo = (pf, title, onclick) => {
+    const el = h('span', { class: 'pf-logo pf-' + pf, title: title || (pf === 'kick' ? 'Live on Kick' : 'Live on Twitch'), onclick });
+    el.innerHTML = LOGO[pf];
+    return el;
+  };
+  const normName = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  function liveMerged() {
+    const map = new Map();
+    const put = (pf, c) => {
+      const k = normName(c.login);
+      let e = map.get(k);
+      if (!e) { e = { name: c.name, avatar: c.avatar, title: c.title, game: c.game, viewers: 0, twitch: null, kick: null }; map.set(k, e); }
+      if (e[pf]) return;
+      e[pf] = c;
+      e.viewers += c.viewers || 0;
+      if (!e.avatar) e.avatar = c.avatar;
+    };
+    for (const c of followingCache) put('twitch', c);
+    if (S.showKick) {
+      for (const c of kickLiveCache) put('kick', c);
+      for (const [k, v] of otherSite) if (v.live) put(k.split(':')[0], v.live);
+    }
+    return [...map.values()].sort((a, b) => b.viewers - a.viewers);
+  }
+  async function refreshKickFollowing(force) {
+    if (!S.showKick) { kickLiveCache = []; return; }
+    if (!force && Date.now() - kickAt < 60000) return;
+    kickAt = Date.now();
+    const r = await prism.kickFollowing().catch(() => null);
+    if (r) { kickSignedIn = r.signedIn; if (r.signedIn) kickLiveCache = r.live || []; else kickLiveCache = []; }
+    await checkOtherSite();
+    renderSideLive();
+  }
+  // Followed on one site, also live on the other?
+  let otherCheck = null;
+  function checkOtherSite() {
+    if (!otherCheck) otherCheck = checkOtherSiteNow().finally(() => { otherCheck = null; });
+    return otherCheck;
+  }
+  async function checkOtherSiteNow() {
+    if (!S.showKick) return;
+    const now = Date.now();
+    const fresh = (k) => now - (otherSite.get(k)?.at || 0) < 5 * 60 * 1000;
+    const kickNames = new Set(kickLiveCache.map((c) => normName(c.login)));
+    const twitchNames = new Set(followingCache.map((c) => normName(c.login)));
+    // Twitch check: one request for everyone.
+    const needTwitch = kickLiveCache.filter((c) => !twitchNames.has(normName(c.login)) && /^[a-z0-9_]+$/.test(c.login.replace(/-/g, '_')) && !fresh('twitch:' + normName(c.login)));
+    if (needTwitch.length) {
+      const r = await prism.twitchLiveCheck(needTwitch.map((c) => c.login.replace(/-/g, '_'))).catch(() => ({}));
+      for (const c of needTwitch) {
+        const hit = r[c.login.replace(/-/g, '_')];
+        otherSite.set('twitch:' + normName(c.login), { at: now, live: hit ? { ...hit, platform: 'twitch', id: hit.login } : null });
+      }
+    }
+    // Kick check: one request per person, a few at a time, cached 5 minutes.
+    const needKick = followingCache.filter((c) => !kickNames.has(normName(c.login)) && !fresh('kick:' + normName(c.login))).slice(0, 25);
+    for (let i = 0; i < needKick.length; i += 5) {
+      await Promise.all(needKick.slice(i, i + 5).map(async (c) => {
+        const slug = c.login.toLowerCase().replace(/_/g, '-');
+        const r = await prism.kick.playback(slug).catch(() => null);
+        const live = r && !r.error && !r.offline ? { platform: 'kick', login: slug, id: slug, name: c.name, avatar: c.avatar, viewers: r.viewers || 0, title: r.title, game: r.game } : null;
+        otherSite.set('kick:' + normName(c.login), { at: now, live });
+      }));
+    }
+  }
+  function openLive(e, pf) {
+    const c = e[pf] || e.twitch || e.kick;
+    const platform = e[pf] ? pf : e.twitch ? 'twitch' : 'kick';
+    addStream({ platform, id: c.login.toLowerCase(), label: c.name });
+    if (currentView !== 'multiview') showView('multiview');
+  }
+  const liveTip = (e) => `${e.name}${e.game ? ' · ' + e.game : ''}\n` +
+    ['twitch', 'kick'].filter((pf) => e[pf]).map((pf) => `${pf === 'kick' ? 'Kick' : 'Twitch'}: ${fmtViewers(e[pf].viewers)} viewers`).join(' · ') +
+    `\n${e.title || ''}`;
   function renderSideLive() {
     const box = $('#side-live');
     box.textContent = '';
-    if (!followingCache.length) return;
+    const list = liveMerged();
+    if (!list.length) return;
     box.append(h('div', { class: 'head', text: 'Following · live' }));
-    const inView = new Set(streams.filter((s) => s.platform === 'twitch').map((s) => s.id));
-    for (const c of followingCache) {
-      const login = c.login.toLowerCase();
+    const inView = new Set(streams.map((s) => s.platform + ':' + s.id));
+    for (const e of list) {
+      const shown = (e.twitch && inView.has('twitch:' + e.twitch.login.toLowerCase())) || (e.kick && inView.has('kick:' + e.kick.login.toLowerCase()));
+      const both = e.twitch && e.kick;
       box.append(h('div', {
-        class: 'live-ch' + (inView.has(login) ? ' in-view' : ''),
-        title: `${c.name}${c.game ? ' · ' + c.game : ''} · ${fmtViewers(c.viewers)} viewers\n${c.title || ''}`,
-        onclick: () => { addStream({ platform: 'twitch', id: login, label: c.name }); if (currentView !== 'multiview') showView('multiview'); }
+        class: 'live-ch' + (shown ? ' in-view' : ''),
+        title: liveTip(e) + (both ? '\n(click opens Twitch; pick a logo for Kick)' : ''),
+        onclick: () => openLive(e, 'twitch')
       },
-        c.avatar ? h('img', { src: c.avatar, alt: '' }) : h('div', { class: 'ph' }),
+        e.avatar ? h('img', { src: e.avatar, alt: '' }) : h('div', { class: 'ph' }),
         h('span', { class: 'dot' }),
-        h('div', { class: 'meta' }, h('b', { text: c.name }), h('span', { text: c.game || 'Live' })),
-        h('span', { class: 'vc', text: fmtViewers(c.viewers) })));
+        h('span', { class: 'pf-badges' }, ...['twitch', 'kick'].filter((pf) => e[pf]).map((pf) => logo(pf, null, (ev) => { ev.stopPropagation(); openLive(e, pf); }))),
+        h('div', { class: 'meta' }, h('b', { text: e.name }), h('span', { text: e.game || 'Live' })),
+        h('span', { class: 'vc', text: fmtViewers(e.viewers) })));
     }
   }
   async function refreshFollowing() {
@@ -3547,7 +3639,9 @@
       paintAllTileInfo();
     } catch {}
     renderSideLive();
+    refreshKickFollowing();
   }
+  setTimeout(() => refreshKickFollowing(true), 4000);
   setInterval(refreshFollowing, 120000);
 
   // =========================================================================

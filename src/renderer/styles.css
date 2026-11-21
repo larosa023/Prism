@@ -1063,3 +1063,13 @@ body.tw-chat {
 .act-head .act-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pred:not(.folded) .act-sum, .poll:not(.folded) .act-sum { color: transparent; }
 .act-head .act-left { margin-left: 0; flex: none; }
+
+/* ---- Platform logos on live lists ------------------------------------------ */
+.pf-badges { display: inline-flex; gap: 3px; vertical-align: -3px; margin-right: 5px; }
+.pf-logo { width: 15px; height: 15px; display: inline-grid; place-items: center; cursor: pointer; border-radius: 3px; }
+.pf-logo svg { width: 15px; height: 15px; }
+.pf-logo:hover { transform: scale(1.15); }
+.live-ch { position: relative; }
+.live-ch .pf-badges { position: absolute; left: -1px; top: 1px; margin: 0; gap: 1px; flex-direction: column; z-index: 2; }
+.live-ch .pf-badges .pf-logo, .live-ch .pf-badges svg { width: 12px; height: 12px; }
+.live-ch .pf-badges .pf-logo { background: var(--bg); border-radius: 3px; box-shadow: 0 0 0 1.5px var(--bg); }

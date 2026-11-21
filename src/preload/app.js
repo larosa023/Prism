@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('prism', {
   },
   twitchSearch: (q) => ipcRenderer.invoke('twitch:search', q),
   twitchFollowing: () => ipcRenderer.invoke('twitch:following'),
+  kickFollowing: () => ipcRenderer.invoke('kick:following'),
+  twitchLiveCheck: (logins) => ipcRenderer.invoke('twitch:live-check', logins),
   onFollowingUpdate: on('twitch:following-update'),
   twitchStreamInfo: (logins) => ipcRenderer.invoke('twitch:stream-info', logins),
   twitchUserIds: (logins) => ipcRenderer.invoke('twitch:user-ids', logins),
