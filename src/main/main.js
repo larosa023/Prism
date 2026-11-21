@@ -82,9 +82,16 @@ function hostMatches(host, list) {
 // scripts via the google-signin preload.
 const GOOGLE_SIGNIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
 const GOOGLE_SIGNIN_HOST = /^https:\/\/(accounts\.google\.com|accounts\.youtube\.com)\//;
+// Google's sign-in page also loads scripts and its bot check from other
+// Google addresses; those have to look like the same Firefox too.
+const GOOGLE_SIGNIN_HELPERS = ['https://*.gstatic.com/*', 'https://www.google.com/*', 'https://play.google.com/*', 'https://apis.google.com/*', 'https://ssl.gstatic.com/*'];
+const frameUrl = (d) => { try { return d.frame?.url || ''; } catch { return ''; } };
 function googleSignInFix(ses) {
-  hooks.onBeforeSendHeaders(ses, ['https://accounts.google.com/*', 'https://accounts.youtube.com/*'], (d, headers) => {
-    if (!GOOGLE_SIGNIN_HOST.test(d.url)) return;
+  hooks.onBeforeSendHeaders(ses, ['https://accounts.google.com/*', 'https://accounts.youtube.com/*', ...GOOGLE_SIGNIN_HELPERS], (d, headers) => {
+    const fromSignIn = GOOGLE_SIGNIN_HOST.test(d.url) ||
+      GOOGLE_SIGNIN_HOST.test(d.referrer || '') || GOOGLE_SIGNIN_HOST.test(headers.Referer || headers.referer || '') ||
+      GOOGLE_SIGNIN_HOST.test(frameUrl(d));
+    if (!fromSignIn) return;
     for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k];
     headers['User-Agent'] = GOOGLE_SIGNIN_UA;
   });

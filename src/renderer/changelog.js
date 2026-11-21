@@ -1,6 +1,13 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.17.5',
+    date: 'Nov 21, 2026',
+    items: [
+      'Fixed "Sign in with Google" on Kick (and made Google sign-in on YouTube sturdier): Google said "This browser or app may not be secure". On Google\'s sign-in pages Prism now looks like a regular Firefox browser all the way through, including the extra files and security check the page loads, instead of a mix of Firefox and Chrome that Google refused.'
+    ]
+  },
+  {
     version: '0.17.4',
     date: 'Nov 20, 2026',
     items: [
