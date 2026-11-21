@@ -44,6 +44,7 @@
           if (r.offline) return callbacks.onError({ code: 404, text: 'offline' }, context, null, stats);
           if (!r.text) return callbacks.onError({ code: r.status || 0, text: r.error || 'failed' }, context, null, stats);
           if (r.ad) onAd(r.ad);
+          else if (r.adEnded) onAd('ended');
           stats.loaded = stats.total = r.text.length;
           callbacks.onSuccess({ url: context.url, data: r.text }, stats, context, null);
         }).catch((e) => {
@@ -239,7 +240,7 @@
       this.lastPos = -1;
       this.lastFrames = -1;
       this.nudged = 0;
-      this.watchTimer = setInterval(() => this.checkFrozen(), 2000);
+      this.watchTimer = setInterval(() => { this.checkFrozen(); this.checkQuality(); }, 2000);
     }
     checkFrozen() {
       const v = this.video;
@@ -271,12 +272,49 @@
     }
 
     adNotice(kind) {
+      if (kind === 'ended') {
+        // The ad-free backup stream is usually 480p at best. Once the ad
+        // break is over, reload at the quality you picked (otherwise the
+        // picture could stay low while the menu still says 1080p).
+        this.adUntil = 0;
+        clearTimeout(this.adTimer);
+        this.onStatus('');
+        setTimeout(() => { if (!this.destroyed) this.applyQuality(); }, 1500);
+        return;
+      }
+      this.adUntil = Date.now() + 12000;
       this.onStatus(kind === 'swapped' ? 'Ad break: playing an ad-free backup stream' : 'Ad break: ads removed, stream resumes shortly');
       clearTimeout(this.adTimer);
       this.adTimer = setTimeout(() => this.onStatus(''), 6000);
     }
 
-    setQuality(q) { this.quality = q; this.applyQuality(); }
+    setQuality(q) { this.quality = q; this.lowSince = 0; this.applyQuality(); }
+
+    // A picked quality that quietly slipped (after an ad break or a network
+    // hiccup): if the picture stays well below it for 15 seconds, reload at
+    // the picked quality, like switching to Source and back by hand.
+    checkQuality() {
+      const hls = this.hls;
+      if (!hls || this.quality === 'auto' || !this.isLive() || this.video.paused || this.suspended) { this.lowSince = 0; return; }
+      if (this.adUntil && Date.now() < this.adUntil) { this.lowSince = 0; return; }
+      const want = this.wantedLevel();
+      const lvl = want >= 0 ? hls.levels[want] : null;
+      const h = this.video.videoHeight;
+      const slipped = (hls.currentLevel !== want && hls.loadLevel !== want) || (lvl?.height && h && h < lvl.height * 0.8);
+      if (!slipped) { this.lowSince = 0; return; }
+      if (!this.lowSince) { this.lowSince = Date.now(); return; }
+      if (Date.now() - this.lowSince < 15000 || Date.now() - (this.lastRelock || 0) < 60000) return;
+      this.lowSince = 0;
+      this.lastRelock = Date.now();
+      this.applyQuality();
+    }
+    wantedLevel() {
+      const hls = this.hls;
+      if (!hls || !hls.levels.length || this.quality === 'auto') return -1;
+      if (this.quality === 'source') return hls.levels.reduce((b, l, i) => (l.bitrate > hls.levels[b].bitrate ? i : b), 0);
+      const want = Number(this.quality);
+      return hls.levels.reduce((b, l, i) => (Math.abs(l.height - want) < Math.abs(hls.levels[b].height - want) ? i : b), 0);
+    }
     applyQuality() {
       const hls = this.hls;
       if (!hls || !hls.levels.length) return;
@@ -286,13 +324,7 @@
         return;
       }
       hls.capLevelToPlayerSize = false;
-      let idx;
-      if (this.quality === 'source') idx = hls.levels.reduce((b, l, i) => (l.bitrate > hls.levels[b].bitrate ? i : b), 0);
-      else {
-        const want = Number(this.quality);
-        idx = hls.levels.reduce((b, l, i) => (Math.abs(l.height - want) < Math.abs(hls.levels[b].height - want) ? i : b), 0);
-      }
-      hls.currentLevel = idx;
+      hls.currentLevel = this.wantedLevel();
     }
 
     // ---- Rewind ----------------------------------------------------------

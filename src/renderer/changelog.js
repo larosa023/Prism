@@ -1,6 +1,14 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.17.2',
+    date: 'Nov 20, 2026',
+    items: [
+      'Fixed streams set to 1080p dropping to a lower picture (while the menu still said 1080p) until you switched to Source and back. During an ad break Prism plays Twitch\'s ad-free backup stream, which is usually 480p at most. Now the stream reloads at your quality as soon as the ad break ends.',
+      'If a stream\'s picture ever stays well below the quality you picked for 15 seconds, Prism reloads it at that quality by itself.'
+    ]
+  },
+  {
     version: '0.17.1',
     date: 'Nov 20, 2026',
     items: [

@@ -192,9 +192,10 @@ ipcMain.handle('twitch:stream-playlist', async (_e, login, url) => {
     const r = await fetchText(url);
     if (r.status !== 200) return { status: r.status };
     if (!r.text.includes(AD_SIGNIFIER)) {
+      const adEnded = state.inAd;
       state.inAd = false;
       rememberSegments(state, r.text);
-      return { text: r.text };
+      return adEnded ? { text: r.text, adEnded: true } : { text: r.text };
     }
     state.inAd = true;
     const backup = await backupMediaPlaylist(login, state, url);
