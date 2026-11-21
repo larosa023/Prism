@@ -1,6 +1,13 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.17.1',
+    date: 'Nov 20, 2026',
+    items: [
+      'Fixed TikTok messages: names and profile pictures were missing and conversations wouldn\'t open, because the privacy filter lists were blocking some of TikTok\'s own servers (including the one that keeps you signed in). TikTok\'s own servers are no longer blocked; ads in the TikTok feed and other companies\' trackers still are.'
+    ]
+  },
+  {
     version: '0.17.0',
     date: 'Nov 20, 2026',
     items: [

@@ -55,6 +55,17 @@ function isAllowlisted(url) {
   return settings.get().allowlist.some((d) => host === d || host.endsWith('.' + d));
 }
 
+// TikTok's own servers are never blocked. The privacy lists block some of
+// them (sign-in cookie refresh, settings, monitoring), and TikTok breaks in
+// quiet ways when they're missing: DMs show no names or pictures and
+// conversations don't open. Requests from TikTok's background workers carry
+// no page address, so these can't be limited to tiktok.com pages. Ads inside
+// the TikTok feed are still removed (a uBlock Origin page rule), and other
+// companies' trackers are still blocked.
+const TIKTOK_HOSTS = ['tiktok.com', 'tiktokv.com', 'tiktokv.us', 'tiktokv.eu', 'tiktokw.us', 'tiktokw.eu', 'tiktokcdn.com', 'tiktokcdn-us.com',
+  'tiktokcdn-eu.com', 'ttwstatic.com', 'byteoversea.com', 'ibytedtos.com', 'ibyteimg.com', 'byteimg.com', 'muscdn.com', 'tiktok-row.org'];
+const BUILTIN_RULES = TIKTOK_HOSTS.map((d) => `@@||${d}^`).join('\n');
+
 function allowlistRules() {
   // Network exceptions for every request made from an allowlisted site.
   return settings.get().allowlist.map((d) => `@@*$domain=${d}`).join('\n');
@@ -75,7 +86,7 @@ function fileStamp(file) {
 function cacheKey(enabled) {
   const s = settings.get();
   const parts = [ENGINE_LIB_VERSION, ...enabled.map((k) => k + '=' + fileStamp(path.join(cacheDir(), k + '.txt'))),
-    'res=' + fileStamp(path.join(cacheDir(), 'resources.json')), 'custom=' + (s.customFilters || ''), 'allow=' + (s.allowlist || []).join(',')];
+    'res=' + fileStamp(path.join(cacheDir(), 'resources.json')), 'custom=' + (s.customFilters || ''), 'allow=' + (s.allowlist || []).join(','), 'builtin=' + BUILTIN_RULES];
   return crypto.createHash('sha1').update(parts.join('|')).digest('hex');
 }
 const isStale = (file) => { try { return Date.now() - fs.statSync(file).mtimeMs > MAX_AGE; } catch { return true; } };
@@ -139,7 +150,7 @@ async function build(force = false) {
   for (const k of enabled) await ensureList(k, LISTS[k].url, force);
   await resourcesText(force);
   fs.mkdirSync(cacheDir(), { recursive: true });
-  const { rules } = await buildInProcess(enabled.map((k) => path.join(cacheDir(), k + '.txt')), [s.customFilters || '', allowlistRules()].join('\n'));
+  const { rules } = await buildInProcess(enabled.map((k) => path.join(cacheDir(), k + '.txt')), [s.customFilters || '', allowlistRules(), BUILTIN_RULES].join('\n'));
   try { fs.writeFileSync(ENGINE_META(), JSON.stringify({ key: cacheKey(enabled), rules, at: Date.now() })); } catch {}
   return { engine: finish(ElectronBlocker.deserialize(new Uint8Array(fs.readFileSync(ENGINE_FILE())))), rules, fromCache: false };
 }
