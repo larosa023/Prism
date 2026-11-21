@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.17.3',
+    date: 'Nov 20, 2026',
+    items: [
+      'Twitch streams play much closer to live, about where twitch.tv is (they could run 20–30 seconds behind). Prism now picks up Twitch\'s early "prefetch" video like Twitch\'s own player does, and keeps about 5 seconds of cushion instead of ~18.',
+      'If a stream falls behind (after a stall or a slow network moment), it speeds up very slightly to catch up, and jumps back to live if it\'s more than a few seconds behind for 8 seconds. Streams you rewound on purpose are left alone.',
+      'After an ad break, the stream also jumps back to live (the ad-free backup can run a little behind).',
+      'New setting "Low latency" (on by default). If streams pause to load a lot on a slow connection, turn it off for a bigger cushion.'
+    ]
+  },
+  {
     version: '0.17.2',
     date: 'Nov 20, 2026',
     items: [

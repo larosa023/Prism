@@ -74,6 +74,7 @@ const DEFAULTS = {
   chatHighlight: '',        // words to highlight (comma separated)
   chatHideWords: '',        // messages with these words are hidden
   chatHideUsers: '',        // people whose messages are hidden
+  lowLatency: true,         // play Twitch streams as close to live as twitch.tv does
   defaultQuality: 'source', // quality new streams open at: 'source' (highest) or 'auto' (fit the tile)
   startMuted: true,         // streams start muted (pick one to hear)
   tiktokMuted: true,        // TikTok starts muted

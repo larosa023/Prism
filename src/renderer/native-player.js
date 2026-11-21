@@ -16,6 +16,10 @@
 
   // Playlists (master + media) load through Prism's backend, which handles
   // tokens and ads. Video segments load directly.
+  // Seconds behind the newest video to play at, and to jump back from.
+  const liveSync = (kind) => (kind === 'twitch' && window.PRISM_LOW_LATENCY !== false ? 5 : 8);
+  const LIVE_MAX_BEHIND = 16;
+
   function makePlaylistLoader(login, onAd) {
     return class PrismPlaylistLoader {
       constructor() { this.stats = emptyStats(); this.context = null; this.aborted = false; }
@@ -137,15 +141,23 @@
         ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind)) } : {}),
         ...(vod ? { loader: makeVodLoader(this.login), startPosition: this.startAt || -1 } : {}),
         enableWorker: true,
-        lowLatencyMode: false,
+        // Low latency: lets the player speed up a touch to stay near live.
+        lowLatencyMode: this.kind === 'twitch' && window.PRISM_LOW_LATENCY !== false,
         // Keep only a few seconds of video in memory per stream.
         maxBufferLength: vod ? 20 : 8,
         maxMaxBufferLength: vod ? 30 : 16,
         maxBufferSize: 16 * 1000 * 1000,
         // Video kept behind the playhead, so you can rewind (0 = no rewind).
         backBufferLength: vod ? 10 : this.rewindSeconds,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 8,
+        // How far behind live to play, in seconds. (Not in "segments": Twitch
+        // says its segments are up to 6 s long though they're 2 s, which used
+        // to put Prism ~18 s behind and only catch up at ~48 s.) With low
+        // latency on, the newest segments are Twitch's early ("prefetch")
+        // ones, which puts Prism about where twitch.tv is.
+        ...(vod ? {} : { liveSyncDuration: liveSync(this.kind), liveMaxLatencyDuration: LIVE_MAX_BEHIND }),
+        // Drifted behind (after a stall): play a little faster to catch up,
+        // or jump ahead if it's more than LIVE_MAX_BEHIND.
+        maxLiveSyncPlaybackRate: 1.08,
         // Pick a quality that fits the tile, so small tiles don't decode 1080p.
         capLevelToPlayerSize: this.quality === 'auto',
         startLevel: -1,
@@ -240,7 +252,7 @@
       this.lastPos = -1;
       this.lastFrames = -1;
       this.nudged = 0;
-      this.watchTimer = setInterval(() => { this.checkFrozen(); this.checkQuality(); }, 2000);
+      this.watchTimer = setInterval(() => { this.checkFrozen(); this.checkQuality(); this.checkDrift(); }, 2000);
     }
     checkFrozen() {
       const v = this.video;
@@ -271,6 +283,19 @@
       }
     }
 
+    // Fell well behind live without you rewinding (a stall, a slow network
+    // moment, the PC waking up): jump back to live after 8 seconds of it.
+    checkDrift() {
+      const v = this.video;
+      if (!this.hls || !this.isLive() || this.rewound || this.suspended || v.paused || this.destroyed) { this.driftSince = 0; return; }
+      if (this.adUntil && Date.now() < this.adUntil) { this.driftSince = 0; return; }
+      if (this.behind() < 5) { this.driftSince = 0; return; }
+      if (!this.driftSince) { this.driftSince = Date.now(); return; }
+      if (Date.now() - this.driftSince < 8000) return;
+      this.driftSince = 0;
+      this.goLive();
+    }
+
     adNotice(kind) {
       if (kind === 'ended') {
         // The ad-free backup stream is usually 480p at best. Once the ad
@@ -279,7 +304,8 @@
         this.adUntil = 0;
         clearTimeout(this.adTimer);
         this.onStatus('');
-        setTimeout(() => { if (!this.destroyed) this.applyQuality(); }, 1500);
+        // (and back at live: the backup stream can run a little behind).
+        setTimeout(() => { if (!this.destroyed) { this.applyQuality(); if (!this.rewound) setTimeout(() => this.goLive(), 800); } }, 1500);
         return;
       }
       this.adUntil = Date.now() + 12000;
@@ -336,8 +362,8 @@
       if (!this.hls) return 0;
       const target = Math.max(this.earliest() + 0.5, Math.min(this.liveEdge(), this.video.currentTime + sec));
       // While rewound, don't let the player jump back to live by itself.
-      this.hls.config.liveMaxLatencyDurationCount = Infinity;
-      this.hls.config.liveMaxLatencyDuration = undefined;
+      this.hls.config.liveMaxLatencyDuration = Infinity;
+      this.rewound = true;
       this.video.currentTime = target;
       this.video.play().catch(() => {});
       if (this.behind() < 2) this.goLive();
@@ -345,7 +371,9 @@
     }
     goLive() {
       if (!this.hls || !this.isLive()) return;
-      this.hls.config.liveMaxLatencyDurationCount = 8;
+      this.hls.config.liveMaxLatencyDuration = LIVE_MAX_BEHIND;
+      this.rewound = false;
+      this.driftSince = 0;
       const edge = this.hls.liveSyncPosition;
       if (edge) this.video.currentTime = edge;
       this.video.play().catch(() => {});

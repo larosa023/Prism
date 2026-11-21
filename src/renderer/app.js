@@ -2466,6 +2466,7 @@
     if (k === 'evenVolume') for (const t of tiles.values()) t.player?.setEven(!!S.evenVolume);
     if (k === 'chatFontSize') document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
     if (k === 'defaultQuality') for (const t of tiles.values()) if (t.player && !t.stream.quality) t.player.setQuality(S.defaultQuality);
+    if (k === 'lowLatency') window.PRISM_LOW_LATENCY = S.lowLatency !== false;
     if (k === 'chatStyle') document.body.classList.toggle('tw-chat', S.chatStyle !== 'prism');
     if (k === 'backgroundAudio' || k === 'duckLevel') {
       for (const x of streams) {
@@ -3644,6 +3645,7 @@
 
   document.documentElement.style.setProperty('--chat-font', S.chatFontSize + 'px');
   document.body.classList.toggle('tw-chat', S.chatStyle !== 'prism');
+  window.PRISM_LOW_LATENCY = S.lowLatency !== false;
   $('.nav-btn.kick').hidden = !S.showKick;
   $$('#layout-seg button').forEach((b) => b.classList.toggle('on', b.dataset.layout === S.layout));
   applyChatVisible();
