@@ -17,7 +17,13 @@
   // Playlists (master + media) load through Prism's backend, which handles
   // tokens and ads. Video segments load directly.
   // Seconds behind the newest video to play at, and to jump back from.
-  const liveSync = (kind) => (kind === 'twitch' && window.PRISM_LOW_LATENCY !== false ? 6 : 9);
+  // Kick (Amazon IVS) makes short, steady segments and its own site plays ~3 s
+  // behind, so Kick can sit closer than Twitch.
+  const liveSync = (kind) => {
+    const low = window.PRISM_LOW_LATENCY !== false;
+    if (kind === 'kick') return low ? 3.5 : 8;
+    return low ? 6 : 9;
+  };
   const LIVE_MAX_BEHIND = 16;
 
   function makePlaylistLoader(login, onAd) {
@@ -142,7 +148,7 @@
         ...(vod ? { loader: makeVodLoader(this.login), startPosition: this.startAt || -1 } : {}),
         enableWorker: true,
         // Low latency: lets the player speed up a touch to stay near live.
-        lowLatencyMode: this.kind === 'twitch' && window.PRISM_LOW_LATENCY !== false,
+        lowLatencyMode: (this.kind === 'twitch' || this.kind === 'kick') && window.PRISM_LOW_LATENCY !== false,
         // Keep only a few seconds of video in memory per stream.
         maxBufferLength: vod ? 20 : 8,
         maxMaxBufferLength: vod ? 30 : 16,

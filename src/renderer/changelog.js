@@ -1,6 +1,13 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.1',
+    date: 'Nov 21, 2026',
+    items: [
+      'Kick streams in multi-view now play about as close to live as kick.com: about 3.5 seconds of cushion instead of 9, and they catch up after a hiccup like Twitch streams do. (Turning off "Low latency" in Settings brings back a bigger cushion.)'
+    ]
+  },
+  {
     version: '0.18.0',
     date: 'Nov 21, 2026',
     items: [
