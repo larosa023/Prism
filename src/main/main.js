@@ -77,23 +77,31 @@ function hostMatches(host, list) {
 }
 
 // Google refuses sign-in from embedded browsers ("This browser or app may not
-// be secure"). On Google's sign-in pages only, Prism presents itself as a
-// regular Firefox browser: in the request headers here, and to the page's
-// scripts via the google-signin preload.
-const GOOGLE_SIGNIN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0';
+// be secure"). Prism runs on Chrome's engine, so on Google's sign-in pages it
+// presents itself as regular Google Chrome, consistently: "Google Chrome" in
+// the brand list Chrome sends with each request (Electron leaves it out), and
+// the same in what the page's scripts see (the google-signin preload). That
+// includes the extra files and security check the sign-in page loads from
+// other Google addresses.
 const GOOGLE_SIGNIN_HOST = /^https:\/\/(accounts\.google\.com|accounts\.youtube\.com)\//;
-// Google's sign-in page also loads scripts and its bot check from other
-// Google addresses; those have to look like the same Firefox too.
 const GOOGLE_SIGNIN_HELPERS = ['https://*.gstatic.com/*', 'https://www.google.com/*', 'https://play.google.com/*', 'https://apis.google.com/*', 'https://ssl.gstatic.com/*'];
 const frameUrl = (d) => { try { return d.frame?.url || ''; } catch { return ''; } };
+// '"Chromium";v="142", "Not_A Brand";v="24"' -> adds '"Google Chrome";v="142"'
+function withChromeBrand(value) {
+  if (!value || /Google Chrome/.test(value)) return value;
+  const m = /"Chromium";v="([^"]+)"/.exec(value);
+  return m ? `${value}, "Google Chrome";v="${m[1]}"` : value;
+}
 function googleSignInFix(ses) {
   hooks.onBeforeSendHeaders(ses, ['https://accounts.google.com/*', 'https://accounts.youtube.com/*', ...GOOGLE_SIGNIN_HELPERS], (d, headers) => {
     const fromSignIn = GOOGLE_SIGNIN_HOST.test(d.url) ||
       GOOGLE_SIGNIN_HOST.test(d.referrer || '') || GOOGLE_SIGNIN_HOST.test(headers.Referer || headers.referer || '') ||
       GOOGLE_SIGNIN_HOST.test(frameUrl(d));
     if (!fromSignIn) return;
-    for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k];
-    headers['User-Agent'] = GOOGLE_SIGNIN_UA;
+    headers['User-Agent'] = CHROME_UA;
+    for (const k of Object.keys(headers)) {
+      if (/^sec-ch-ua$/i.test(k) || /^sec-ch-ua-full-version-list$/i.test(k)) headers[k] = withChromeBrand(headers[k]);
+    }
   });
   try {
     ses.registerPreloadScript({ type: 'frame', id: 'prism-google-signin', filePath: path.join(__dirname, '..', 'preload', 'google-signin.js') });

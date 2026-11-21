@@ -1,6 +1,14 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.17.6',
+    date: 'Nov 21, 2026',
+    items: [
+      'Another go at "Sign in with Google" on Kick: on Google\'s sign-in pages Prism now presents itself as regular Google Chrome (it runs on Chrome\'s engine), filling in the few things Chrome has that apps built like Prism leave out, instead of pretending to be Firefox.',
+      'If Google still refuses sign-in, Prism now says what else works: signing in to that site with email and password ("Forgot password" sets one for an account made with Google).'
+    ]
+  },
+  {
     version: '0.17.5',
     date: 'Nov 21, 2026',
     items: [

@@ -19,7 +19,7 @@
   const PLAT_NAMES = { twitch: 'Twitch', youtube: 'YouTube', tiktok: 'TikTok', kick: 'Kick', vod: 'Twitch' };
 
   let toastTimer;
-  function toast(msg, action) {
+  function toast(msg, action, ms) {
     const t = $('#toast');
     t.textContent = msg;
     if (action) {
@@ -27,7 +27,7 @@
     }
     t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (t.hidden = true), action ? 6000 : 2600);
+    toastTimer = setTimeout(() => (t.hidden = true), ms || (action ? 6000 : 2600));
   }
 
   const save = (patch) => prism.settings.set(patch).then((s) => (S = s));
@@ -129,6 +129,13 @@
       urlEl.textContent = lastUrl.replace(/^https?:\/\//, '');
       const parsed = parseStream(lastUrl);
       addBtn.hidden = !(parsed && parsed.platform === platform && (parsed.id || parsed.resolve));
+      // Google still refused sign-in inside the app: say what else works.
+      if (/accounts\.google\.com\/v3\/signin\/rejected/.test(lastUrl)) {
+        const site = { kick: 'Kick', twitch: 'Twitch', tiktok: 'TikTok', youtube: 'YouTube' }[platform];
+        toast(platform === 'youtube'
+          ? 'Google refused sign-in inside the app. Press "Try again" once; Google sometimes lets it through the second time.'
+          : `Google refused sign-in inside the app. You can sign in to ${site} with your email and password instead: on ${site}'s login, use "Forgot password" to set one for your Google-made account.`, null, 15000);
+      }
     };
 
     function load() {
