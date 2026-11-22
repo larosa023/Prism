@@ -1,6 +1,13 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.3',
+    date: 'Nov 22, 2026',
+    items: [
+      'New in Settings → Startup: "Start Prism with Windows" opens Prism when you sign in to your PC. With "Start minimized" (on by default) it waits in the taskbar instead of popping up over everything.'
+    ]
+  },
+  {
     version: '0.18.2',
     date: 'Nov 21, 2026',
     items: [

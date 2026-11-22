@@ -163,6 +163,13 @@ function createWindow() {
   });
 
   win.once('ready-to-show', () => {
+    // Opened by Windows at sign-in with "start minimized": sit in the taskbar.
+    if (process.argv.includes('--hidden')) {
+      if (s.maximized) win.maximize();
+      win.showInactive();
+      win.minimize();
+      return;
+    }
     if (s.maximized) win.maximize();
     win.show();
   });
@@ -253,8 +260,18 @@ ipcMain.handle('theme:set', (_e, name) => {
   }
   return true;
 });
+// "Start with Windows": Windows opens Prism when you sign in (optionally
+// minimized). Only for the installed app, not a development copy.
+function applyLoginItem(s = settings.get()) {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  try {
+    app.setLoginItemSettings({ openAtLogin: !!s.startWithWindows, path: process.execPath, args: s.startMinimized !== false ? ['--hidden'] : [] });
+  } catch {}
+}
+
 ipcMain.handle('settings:set', async (_e, patch) => {
   const s = settings.set(patch);
+  if ('startWithWindows' in patch || 'startMinimized' in patch) applyLoginItem(s);
   if ('adblockEnabled' in patch) adblock.setEnabled(s.adblockEnabled);
   if ('twitchAdScriptUrl' in patch) twitchAds.refresh(true).then((st) => send('twitch:adscript-status', st));
   if (ADBLOCK_KEYS.some((k) => k in patch)) adblock.rebuild(false).then((st) => send('adblock:status', st));
@@ -399,6 +416,7 @@ ipcMain.handle('youtube:resolve-live', async (_e, url) => {
 
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
+  applyLoginItem(); // keep Windows' list in step with the setting (and the app's current location)
   settings.load();
   for (const [k, p] of Object.entries(PLATFORMS)) setupSession(session.fromPartition(p.partition), k);
   session.defaultSession.setUserAgent(CHROME_UA);
