@@ -1,6 +1,15 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.4',
+    date: 'Nov 22, 2026',
+    items: [
+      'Streams stay closer to live. Every small hiccup used to make the player sit a little further behind for the rest of the session (up to 6 seconds more on Twitch). Now it goes back to normal after 45 seconds of smooth playing. Catching up also kicks in sooner (2.5 seconds behind instead of 6).',
+      'Twitch streams sit about 5 seconds behind live (was 6) and Kick about 3 (was 3.5). The player also checks for new video more often, since Twitch claims its pieces are 6 seconds long when they\'re really 2.',
+      'Kick chat: click a message (or a name) to see that person\'s recent messages in this chat, like Twitch chat, with their badges and a link to their Kick profile.'
+    ]
+  },
+  {
     version: '0.18.3',
     date: 'Nov 22, 2026',
     items: [

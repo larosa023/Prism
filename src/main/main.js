@@ -111,12 +111,17 @@ function googleSignInFix(ses) {
 }
 
 const YOUTUBE_PRELOAD = path.join(__dirname, '..', 'preload', 'youtube.js');
+const KICK_CHAT_PRELOAD = path.join(__dirname, '..', 'preload', 'kick-chat.js');
 function setupSession(ses, key) {
   ses.setUserAgent(CHROME_UA);
   googleSignInFix(ses);
   if (key === 'youtube') {
     try { ses.registerPreloadScript({ type: 'frame', id: 'prism-youtube', filePath: YOUTUBE_PRELOAD }); }
     catch { ses.setPreloads([...ses.getPreloads(), YOUTUBE_PRELOAD]); }
+  }
+  if (key === 'kick') {
+    try { ses.registerPreloadScript({ type: 'frame', id: 'prism-kick-chat', filePath: KICK_CHAT_PRELOAD }); }
+    catch { ses.setPreloads([...ses.getPreloads(), KICK_CHAT_PRELOAD]); }
   }
   ses.setPermissionRequestHandler((_wc, permission, cb) => {
     cb(['fullscreen', 'clipboard-sanitized-write', 'pointerLock'].includes(permission));

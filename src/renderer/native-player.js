@@ -21,10 +21,29 @@
   // behind, so Kick can sit closer than Twitch.
   const liveSync = (kind) => {
     const low = window.PRISM_LOW_LATENCY !== false;
-    if (kind === 'kick') return low ? 3.5 : 8;
-    return low ? 6 : 9;
+    if (kind === 'kick') return low ? 3 : 8;
+    return low ? 5 : 9;
   };
   const LIVE_MAX_BEHIND = 16;
+
+  // Kick: give the player the playlist's real segment length as its "target
+  // duration" (it paces playlist checks by it).
+  function makeKickLoader(Base) {
+    return class extends Base {
+      load(context, config, callbacks) {
+        const onSuccess = callbacks.onSuccess;
+        callbacks = { ...callbacks, onSuccess: (response, stats, ctx, net) => {
+          if (typeof response.data === 'string' && response.data.includes('#EXTINF')) {
+            const durs = [...response.data.matchAll(/#EXTINF:([\d.]+)/g)].map((m) => parseFloat(m[1]) || 0).slice(-8);
+            const longest = Math.ceil(Math.max(1, ...durs));
+            response.data = response.data.replace(/#EXT-X-TARGETDURATION:\d+/, '#EXT-X-TARGETDURATION:' + longest);
+          }
+          onSuccess(response, stats, ctx, net);
+        } };
+        super.load(context, config, callbacks);
+      }
+    };
+  }
 
   function makePlaylistLoader(login, onAd) {
     return class PrismPlaylistLoader {
@@ -145,6 +164,7 @@
       const vod = this.kind === 'vod';
       const hls = new Hls({
         ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind)) } : {}),
+        ...(this.kind === 'kick' ? { pLoader: makeKickLoader(Hls.DefaultConfig.loader) } : {}),
         ...(vod ? { loader: makeVodLoader(this.login), startPosition: this.startAt || -1 } : {}),
         enableWorker: true,
         // Low latency: lets the player speed up a touch to stay near live.
@@ -162,6 +182,9 @@
         // Drifted behind (after a stall): play a little faster to catch up,
         // or jump ahead if it's more than LIVE_MAX_BEHIND.
         maxLiveSyncPlaybackRate: 1.05,
+        // A hiccup adds this much delay (hls.js default: 1 s each, up to a
+        // whole segment, and it never gives it back; see relaxLatency()).
+        liveSyncOnStallIncrease: 0.5,
         // Pick a quality that fits the tile, so small tiles don't decode 1080p.
         capLevelToPlayerSize: this.quality === 'auto',
         startLevel: -1,
@@ -189,6 +212,7 @@
         }
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.details === 'bufferStalledError') this.lastStall = Date.now();
         if (data.response && data.response.text === 'offline') return this.wentOffline();
         if (vod && data.fatal && data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR) return this.onFatalVod(data.response?.text);
         if (!data.fatal) return;
@@ -294,16 +318,29 @@
     // stop and load. (Much further behind, the player jumps by itself.)
     checkDrift() {
       const v = this.video;
+      this.relaxLatency();
       if (!this.hls || !this.isLive() || this.rewound || this.suspended || v.paused || this.destroyed) { this.driftSince = 0; return; }
       if (this.adUntil && Date.now() < this.adUntil) { this.driftSince = 0; return; }
-      if (this.behind() < 6) { this.driftSince = 0; return; }
+      if (this.behind() < 2.5) { this.driftSince = 0; return; }
       if (!this.driftSince) { this.driftSince = Date.now(); return; }
-      if (Date.now() - this.driftSince < 10000) return;
+      if (Date.now() - this.driftSince < 6000) return;
       this.driftSince = 0;
       const b = v.buffered;
       const end = b.length ? b.end(b.length - 1) : 0;
-      const target = Math.min(this.liveEdge(), end - 2);
-      if (target > v.currentTime + 2) v.currentTime = target;
+      const target = Math.min(this.liveEdge(), end - 1.5);
+      if (target > v.currentTime + 1) v.currentTime = target;
+    }
+
+    // Each hiccup makes the player sit a little further behind live, and it
+    // never gives that back by itself. After 45 s of smooth playing, go back
+    // to the normal distance (it then catches up gently).
+    relaxLatency() {
+      const hls = this.hls;
+      if (!hls || !this.isLive() || this.rewound) return;
+      const lc = hls.latencyController;
+      if (!lc || !lc.stallCount) return;
+      if (Date.now() - (this.lastStall || 0) < 45000) return;
+      try { hls.targetLatency = liveSync(this.kind); } catch {}
     }
 
     adNotice(kind) {

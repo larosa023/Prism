@@ -206,7 +206,12 @@ function splice(lvl, text, src) {
   if (!win.length) return text;
   const first = win[0].seq;
   const discBefore = lvl.disc.filter((d) => d < first).length;
-  const out = [...header.filter((l) => l !== '#EXTM3U'), `#EXT-X-MEDIA-SEQUENCE:${first}`, `#EXT-X-DISCONTINUITY-SEQUENCE:${discBefore}`];
+  // Twitch says segments can be 6 s though they're 2 s; the player uses this
+  // to pace playlist checks and how much extra delay a hiccup adds, so give
+  // it the real length.
+  const longest = Math.max(1, ...win.map((sg) => parseFloat((sg.tags.find((t) => t.startsWith('#EXTINF')) || '').slice(8)) || 2));
+  const head = header.filter((l) => l !== '#EXTM3U').map((l) => (l.startsWith('#EXT-X-TARGETDURATION:') ? `#EXT-X-TARGETDURATION:${Math.ceil(longest)}` : l));
+  const out = [...head, `#EXT-X-MEDIA-SEQUENCE:${first}`, `#EXT-X-DISCONTINUITY-SEQUENCE:${discBefore}`];
   for (const sg of win) {
     if (lvl.disc.includes(sg.seq)) out.push('#EXT-X-DISCONTINUITY');
     out.push(...sg.tags, sg.uri);

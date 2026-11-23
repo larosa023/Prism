@@ -1805,10 +1805,56 @@
     userCard = { ch, login: login.toLowerCase() };
     renderUserCard(false, true);
   }
-  function closeUserCard() { userCard = null; cardEl.hidden = true; cardEl.textContent = ''; }
+  function closeUserCard() {
+    if (userCard?.kick) { try { userCard.wv.send('prism-kick-card-closed'); } catch {} }
+    userCard = null; cardEl.hidden = true; cardEl.textContent = '';
+  }
+
+  // Kick: the same kind of card, from what Kick's chat page heard.
+  const KICK_BADGE = { broadcaster: 'LIVE', moderator: 'MOD', vip: 'VIP', og: 'OG', founder: 'FOUNDER', subscriber: 'SUB', sub_gifter: 'GIFTER', verified: '✓', staff: 'STAFF' };
+  function kickText(raw) {
+    const out = document.createDocumentFragment();
+    let last = 0;
+    for (const m of raw.matchAll(/\[emote:(\d+):([^\]]*)\]/g)) {
+      if (m.index > last) out.append(raw.slice(last, m.index));
+      out.append(h('img', { class: 'emote', src: `https://files.kick.com/emotes/${m[1]}/fullsize`, alt: m[2], title: m[2] }));
+      last = m.index + m[0].length;
+    }
+    if (last < raw.length) out.append(raw.slice(last));
+    return out;
+  }
+  function openKickCard(wv, d, fresh) {
+    const list = cardEl.querySelector('.uc-list');
+    const nearBottom = !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 30;
+    userCard = { kick: true, wv, login: d.login };
+    const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const nameEl = h('b', { class: 'uc-name', text: d.name });
+    const sample = PrismChat.renderMessage({ tags: { color: d.color || '' }, nick: d.login, text: '' }, {});
+    nameEl.style.color = sample.querySelector('.name').style.color;
+    const badges = h('span', { class: 'uc-badges' }, ...(d.badges || []).filter((b) => KICK_BADGE[b.type]).map((b) =>
+      h('span', { class: 'badge b-' + (b.type === 'broadcaster' ? 'broadcaster' : b.type === 'moderator' ? 'moderator' : b.type === 'vip' ? 'vip' : 'subscriber'),
+        text: KICK_BADGE[b.type], title: b.text + (b.count ? ` (${b.count} months)` : '') })));
+    const newList = h('div', { class: 'uc-list' });
+    for (const m of d.msgs || []) newList.append(h('div', { class: 'msg' }, h('span', { class: 'uc-time', text: fmtTime(m.at) }), h('span', { class: 'text' }, kickText(m.raw))));
+    if (!d.msgs?.length) newList.append(h('div', { class: 'chat-empty', text: `No recent messages from ${d.name}.` }));
+    const n = d.msgs?.length || 0;
+    cardEl.textContent = '';
+    cardEl.append(
+      h('div', { class: 'uc-head' },
+        h('div', { class: 'uc-who' }, badges, nameEl, h('span', { class: 'uc-count', text: `${n}${n >= 60 ? '+' : ''} message${n === 1 ? '' : 's'}` })),
+        h('button', { class: 'icon-btn', title: 'Close', text: '✕', onclick: closeUserCard })),
+      newList,
+      h('div', { class: 'uc-actions' },
+        h('button', { class: 'btn', text: 'Kick profile', onclick: () => prism.openExternal(`https://kick.com/${encodeURIComponent(d.login)}`) }),
+        h('span', { class: 'uc-ch muted', text: 'Kick · ' + d.slug })));
+    cardEl.style.top = ($('#chat-tabs').offsetHeight + 6) + 'px';
+    cardEl.style.bottom = '6px';
+    cardEl.hidden = false;
+    if (fresh || nearBottom) newList.scrollTop = newList.scrollHeight;
+  }
 
   function renderUserCard(appendOnly, scrollToEnd) {
-    if (!userCard) return;
+    if (!userCard || userCard.kick) return;
     const { ch, login } = userCard;
     const u = userLogs.get(ch)?.get(login);
     const list = cardEl.querySelector('.uc-list');
@@ -2040,9 +2086,17 @@
   function webPane(key, s) {
     let p = panes.get(key);
     if (p) return p;
-    const el = h('div', { class: 'chat-pane web' },
-      h('webview', { partition: info.platforms[s.platform].partition, src: webChatUrl(s), webpreferences: 'backgroundThrottling=yes' }));
+    const wv = h('webview', { partition: info.platforms[s.platform].partition, src: webChatUrl(s), webpreferences: 'backgroundThrottling=yes' });
+    const el = h('div', { class: 'chat-pane web' }, wv);
     p = { el, kind: 'web', stick: true, queue: [] };
+    // Kick: clicking a message opens that person's chat history (from the
+    // Kick chat page's helper, see preload/kick-chat.js).
+    if (s.platform === 'kick') {
+      wv.addEventListener('ipc-message', (e) => {
+        if (e.channel === 'prism-kick-user' && e.args[0]) openKickCard(wv, e.args[0], true);
+        else if (e.channel === 'prism-kick-user-update' && e.args[0] && userCard?.kick && userCard.login === e.args[0].login) openKickCard(wv, e.args[0], false);
+      });
+    }
     chatBody.append(el);
     panes.set(key, p);
     return p;
