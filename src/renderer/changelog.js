@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.6',
+    date: 'Nov 22, 2026',
+    items: [
+      'Twitch streams now play each piece of video while it\'s still arriving, the way twitch.tv does, instead of waiting for it to finish downloading. With a slightly smaller cushion (4 seconds), streams sat about 2 seconds behind live in testing (was about 3).',
+      'Kick streams get the same treatment when Kick lists video early.',
+      'Streams that fall behind catch up faster (up to 10% faster playback instead of 5%).',
+      'If a server won\'t hand out early video, that stream switches to normal playback after one short pause instead of stuttering.'
+    ]
+  },
+  {
     version: '0.18.5',
     date: 'Nov 22, 2026',
     items: [

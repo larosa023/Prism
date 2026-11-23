@@ -22,18 +22,44 @@
   const liveSync = (kind) => {
     const low = window.PRISM_LOW_LATENCY !== false;
     if (kind === 'kick') return low ? 3 : 8;
-    return low ? 5 : 9;
+    // Twitch with early video, played while it arrives: about as close as
+    // twitch.tv (in testing, 4 s of cushion was the closest without pauses).
+    return low ? (window.PRISM_TWITCH_SYNC || 4) : 9;
   };
   const LIVE_MAX_BEHIND = 16;
 
   // Kick: give the player the playlist's real segment length as its "target
   // duration" (it paces playlist checks by it).
-  function makeKickLoader(Base) {
+  function makeKickLoader(Base, player) {
+    const early = player.earlyUrls || (player.earlyUrls = new Set());
     return class extends Base {
       load(context, config, callbacks) {
         const onSuccess = callbacks.onSuccess;
         callbacks = { ...callbacks, onSuccess: (response, stats, ctx, net) => {
           if (typeof response.data === 'string' && response.data.includes('#EXTINF')) {
+            // Early ("prefetch") segments, like Twitch's: list them as ordinary
+            // segments, marked so the segment loader waits for them, and keep
+            // the same marked address once they're finished.
+            if (window.PRISM_LOW_LATENCY !== false && !player.noPrefetch) {
+              const lines = response.data.split('\n');
+              let dur = 2;
+              const out = [];
+              for (const raw of lines) {
+                const line = raw.trim();
+                if (line.startsWith('#EXTINF:')) dur = parseFloat(line.slice(8)) || dur;
+                const pf = /^#EXT-X-(?:TWITCH-)?PREFETCH:(.+)$/.exec(line);
+                if (pf) {
+                  const url = new URL(pf[1].trim(), context.url).href;
+                  early.add(url);
+                  // Kick has early segments too: same cushion as Twitch.
+                  if (!player.earlyKick) { player.earlyKick = true; try { player.hls.targetLatency = liveSync('twitch'); } catch {} }
+                  out.push(`#EXTINF:${dur.toFixed(3)},`, url + '#prism-prefetch');
+                } else if (line && !line.startsWith('#') && early.has(new URL(line, context.url).href)) out.push(new URL(line, context.url).href + '#prism-prefetch');
+                else out.push(raw);
+              }
+              if (early.size > 200) for (const u of [...early].slice(0, 100)) early.delete(u);
+              response.data = out.join('\n');
+            }
             const durs = [...response.data.matchAll(/#EXTINF:([\d.]+)/g)].map((m) => parseFloat(m[1]) || 0).slice(-8);
             const longest = Math.ceil(Math.max(1, ...durs));
             response.data = response.data.replace(/#EXT-X-TARGETDURATION:\d+/, '#EXT-X-TARGETDURATION:' + longest);
@@ -56,6 +82,14 @@
         const attempt = () => {
           const fail = (...args) => {
             if (this.aborted || player.destroyed) return;
+            // A server that turns early requests away (instead of holding
+            // them until the video is ready) makes early video stutter: stop
+            // using it on this stream and keep a normal cushion.
+            player.prefetchRetries = (player.prefetchRetries || 0) + 1;
+            if (player.prefetchRetries > 6 && !player.noPrefetch) {
+              player.noPrefetch = true;
+              try { player.hls.targetLatency = player.kind === 'kick' ? 3 : 5; } catch {}
+            }
             if (performance.now() - started < 8000) { setTimeout(() => { if (!this.aborted) { this.inner = new Base(config); this.inner.load(context, config, cbs); } }, 350); return; }
             player.prefetchFails = (player.prefetchFails || 0) + 1;
             if (player.prefetchFails >= 3) player.noPrefetch = true;
@@ -73,6 +107,17 @@
       get stats() { return this.inner ? this.inner.stats : this._stats; }
       set stats(v) { this._stats = v; }
     };
+  }
+
+  // hls.js's own streaming (fetch) loader; it only hands it out via config.
+  let FetchLoaderClass = null;
+  function streamingLoader() {
+    if (window.PRISM_LOW_LATENCY === false) return Hls.DefaultConfig.loader;
+    if (!FetchLoaderClass) {
+      try { const tmp = new Hls({ progressive: true }); FetchLoaderClass = tmp.config.loader; tmp.destroy(); } catch {}
+      if (!FetchLoaderClass) FetchLoaderClass = Hls.DefaultConfig.loader;
+    }
+    return FetchLoaderClass;
   }
 
   function makePlaylistLoader(login, onAd, player) {
@@ -193,8 +238,12 @@
       if (this.kind === 'vod') source = 'prism-vod://' + this.login;
       const vod = this.kind === 'vod';
       const hls = new Hls({
-        ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind), this), fLoader: makeFragLoader(Hls.DefaultConfig.loader, this) } : {}),
-        ...(this.kind === 'kick' ? { pLoader: makeKickLoader(Hls.DefaultConfig.loader) } : {}),
+        // Twitch, low latency: play each piece of video while it's still
+        // arriving (like twitch.tv), not only once it's fully downloaded.
+        ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind), this), fLoader: makeFragLoader(streamingLoader(), this),
+          progressive: window.PRISM_LOW_LATENCY !== false } : {}),
+        ...(this.kind === 'kick' ? { pLoader: makeKickLoader(Hls.DefaultConfig.loader, this), fLoader: makeFragLoader(streamingLoader(), this),
+          progressive: window.PRISM_LOW_LATENCY !== false } : {}),
         ...(vod ? { loader: makeVodLoader(this.login), startPosition: this.startAt || -1 } : {}),
         enableWorker: true,
         // Low latency: lets the player speed up a touch to stay near live.
@@ -211,7 +260,7 @@
         ...(vod ? {} : { liveSyncDuration: liveSync(this.kind), liveMaxLatencyDuration: LIVE_MAX_BEHIND }),
         // Drifted behind (after a stall): play a little faster to catch up,
         // or jump ahead if it's more than LIVE_MAX_BEHIND.
-        maxLiveSyncPlaybackRate: 1.05,
+        maxLiveSyncPlaybackRate: 1.1,
         // A hiccup adds this much delay (hls.js default: 1 s each, up to a
         // whole segment, and it never gives it back; see relaxLatency()).
         liveSyncOnStallIncrease: 0.5,
