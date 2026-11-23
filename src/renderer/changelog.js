@@ -1,6 +1,14 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.5',
+    date: 'Nov 22, 2026',
+    items: [
+      'Twitch streams now play about as close to live as twitch.tv (about 3 seconds behind instead of 6 in testing). Prism picks up Twitch\'s early "prefetch" video like Twitch\'s own player does. The earlier attempt at this (0.17.3) caused "Reconnecting…": the same piece of video was listed under two different addresses, which made the player give up. That\'s fixed, and a piece that isn\'t ready yet is simply asked for again a moment later.',
+      'If early video keeps failing on a stream, that stream quietly goes back to normal playback instead of reconnecting.'
+    ]
+  },
+  {
     version: '0.18.4',
     date: 'Nov 22, 2026',
     items: [

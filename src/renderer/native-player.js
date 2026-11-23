@@ -45,7 +45,37 @@
     };
   }
 
-  function makePlaylistLoader(login, onAd) {
+  // Segments Twitch listed early (see the main process's PREFETCH_MARK): if
+  // Twitch says one isn't ready yet, ask again shortly instead of failing.
+  // A stream where that keeps going wrong stops using them (player.noPrefetch).
+  function makeFragLoader(Base, player) {
+    return class extends Base {
+      load(context, config, callbacks) {
+        if (!context.url.includes('#prism-prefetch')) return super.load(context, config, callbacks);
+        const started = performance.now();
+        const attempt = () => {
+          const fail = (...args) => {
+            if (this.aborted || player.destroyed) return;
+            if (performance.now() - started < 8000) { setTimeout(() => { if (!this.aborted) { this.inner = new Base(config); this.inner.load(context, config, cbs); } }, 350); return; }
+            player.prefetchFails = (player.prefetchFails || 0) + 1;
+            if (player.prefetchFails >= 3) player.noPrefetch = true;
+            (callbacks.onError || callbacks.onTimeout)(...args);
+          };
+          const cbs = { ...callbacks, onError: fail, onTimeout: (stats, ctx, net) => fail({ code: 0, text: 'timeout' }, ctx, net, stats) };
+          this.inner = new Base(config);
+          this.inner.load(context, config, cbs);
+        };
+        attempt();
+      }
+      abort() { this.aborted = true; this.inner?.abort(); super.abort?.(); }
+      destroy() { this.aborted = true; this.inner?.destroy(); super.destroy?.(); }
+      // While retrying, each attempt is its own loader; report its numbers.
+      get stats() { return this.inner ? this.inner.stats : this._stats; }
+      set stats(v) { this._stats = v; }
+    };
+  }
+
+  function makePlaylistLoader(login, onAd, player) {
     return class PrismPlaylistLoader {
       constructor() { this.stats = emptyStats(); this.context = null; this.aborted = false; }
       destroy() { this.aborted = true; }
@@ -64,7 +94,7 @@
         }, 12000);
         const job = context.url.startsWith(MASTER_PREFIX)
           ? prism.twitchStream.master(login).then((r) => (r.master ? { text: r.master } : r))
-          : prism.twitchStream.playlist(login, context.url);
+          : prism.twitchStream.playlist(login, context.url, { prefetch: window.PRISM_LOW_LATENCY !== false && !player?.noPrefetch });
         job.then((r) => {
           clearTimeout(timer);
           if (this.aborted || settled) return;
@@ -163,7 +193,7 @@
       if (this.kind === 'vod') source = 'prism-vod://' + this.login;
       const vod = this.kind === 'vod';
       const hls = new Hls({
-        ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind)) } : {}),
+        ...(this.kind === 'twitch' ? { pLoader: makePlaylistLoader(this.login, (kind) => this.adNotice(kind), this), fLoader: makeFragLoader(Hls.DefaultConfig.loader, this) } : {}),
         ...(this.kind === 'kick' ? { pLoader: makeKickLoader(Hls.DefaultConfig.loader) } : {}),
         ...(vod ? { loader: makeVodLoader(this.login), startPosition: this.startAt || -1 } : {}),
         enableWorker: true,

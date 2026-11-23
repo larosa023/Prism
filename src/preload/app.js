@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld('prism', {
   },
   twitchStream: {
     master: (login) => ipcRenderer.invoke('twitch:stream-master', login),
-    playlist: (login, url) => ipcRenderer.invoke('twitch:stream-playlist', login, url),
+    playlist: (login, url, opts) => ipcRenderer.invoke('twitch:stream-playlist', login, url, opts),
     forget: (login) => ipcRenderer.send('twitch:stream-forget', login),
     clip: (login, seconds) => ipcRenderer.invoke('twitch:clip', login, seconds),
     showClip: (file) => ipcRenderer.invoke('clip:show', file)

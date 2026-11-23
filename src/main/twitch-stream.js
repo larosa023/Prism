@@ -165,7 +165,14 @@ async function backupMediaPlaylist(login, state, currentUrl) {
 // every segment the player sees gets Prism's own running number, video
 // already shown (by its timestamp) is skipped, and a "discontinuity" marks
 // each switch so the player carries on without a hitch.
-function parsePlaylist(text) {
+// Twitch lists the next one or two segments before they're finished
+// ("#EXT-X-TWITCH-PREFETCH"); twitch.tv starts fetching them early, which is
+// how it stays ~2 s closer to live. With low latency on, Prism lists them as
+// ordinary segments, marked so the player knows to wait for them (the
+// segment loader retries a "not ready yet") and replaced by the finished
+// segment's own entry once Twitch lists it.
+const PREFETCH_MARK = '#prism-prefetch';
+function parsePlaylist(text, withPrefetch) {
   const lines = text.split('\n');
   const header = [];
   const segs = [];
@@ -174,34 +181,53 @@ function parsePlaylist(text) {
   for (const raw of lines) {
     const line = raw.trimEnd();
     if (!line) continue;
-    if (/^#EXT-X-(MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE|DISCONTINUITY$|ENDLIST|TWITCH-PREFETCH)/.test(line)) continue;
+    if (line.startsWith('#EXT-X-TWITCH-PREFETCH:')) {
+      const last = segs[segs.length - 1];
+      if (!withPrefetch || !last) continue;
+      const url = line.slice('#EXT-X-TWITCH-PREFETCH:'.length).trim();
+      const pdt = last.pdt ? last.pdt + last.dur * 1000 : 0;
+      segs.push({ uri: url + PREFETCH_MARK, key: url, prefetch: true, dur: last.dur, pdt, ad: false,
+        tags: [...(pdt ? [`#EXT-X-PROGRAM-DATE-TIME:${new Date(pdt).toISOString()}`] : []), `#EXTINF:${last.dur.toFixed(3)},live`] });
+      continue;
+    }
+    if (/^#EXT-X-(MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE|DISCONTINUITY$|ENDLIST)/.test(line)) continue;
     if (line.startsWith('#EXT-X-DATERANGE') && line.includes(AD_SIGNIFIER)) continue;
     if (!started && !line.startsWith('#EXTINF') && !line.startsWith('#EXT-X-PROGRAM-DATE-TIME')) { header.push(line); continue; }
     started = true;
     if (!line.startsWith('#')) {
       const inf = tags.find((t) => t.startsWith('#EXTINF')) || '';
       const pdtTag = tags.find((t) => t.startsWith('#EXT-X-PROGRAM-DATE-TIME:'));
-      segs.push({ uri: line, tags, dur: parseFloat(inf.slice(8)) || 2, pdt: pdtTag ? Date.parse(pdtTag.slice(25)) || 0 : 0, ad: !inf.includes(LIVE_SIGNIFIER) });
+      segs.push({ uri: line, key: line, tags, dur: parseFloat(inf.slice(8)) || 2, pdt: pdtTag ? Date.parse(pdtTag.slice(25)) || 0 : 0, ad: !inf.includes(LIVE_SIGNIFIER) });
       tags = [];
     } else tags.push(line);
   }
   return { header, segs };
 }
-function splice(lvl, text, src) {
-  const { header, segs } = parsePlaylist(text);
+function splice(lvl, text, src, withPrefetch) {
+  const { header, segs } = parsePlaylist(text, withPrefetch && !text.includes(AD_SIGNIFIER));
   for (const sg of segs) {
-    if (lvl.seqOf.has(sg.uri) || sg.ad) continue;
+    if (sg.ad) continue;
+    if (lvl.seqOf.has(sg.key)) {
+      // A segment listed early is now finished: take Twitch's details for it
+      // (real length and time), but keep the address the player already
+      // knows (a changed address for the same segment makes it give up).
+      if (!sg.prefetch) {
+        const e = lvl.segs.find((x) => x.key === sg.key);
+        if (e?.prefetch) { e.prefetch = false; e.tags = sg.tags; }
+      }
+      continue;
+    }
     // Already played this moment (from the other copy of the stream)?
     if (sg.pdt && lvl.lastPdt && sg.pdt <= lvl.lastPdt + 250) continue;
     const seq = lvl.next++;
-    lvl.seqOf.set(sg.uri, seq);
+    lvl.seqOf.set(sg.key, seq);
     if (lvl.src && lvl.src !== src) lvl.disc.push(seq);
     lvl.src = src;
     if (sg.pdt) lvl.lastPdt = sg.pdt;
-    lvl.segs.push({ seq, uri: sg.uri, tags: sg.tags });
+    lvl.segs.push({ seq, key: sg.key, uri: sg.uri, tags: sg.tags, prefetch: !!sg.prefetch });
   }
   // Keep the newest ~30 s worth, and forget older numbers.
-  while (lvl.segs.length > 15) lvl.seqOf.delete(lvl.segs.shift().uri);
+  while (lvl.segs.length > 15) lvl.seqOf.delete(lvl.segs.shift().key);
   const win = lvl.segs.slice(-8);
   if (!win.length) return text;
   const first = win[0].seq;
@@ -273,7 +299,8 @@ ipcMain.handle('twitch:stream-master', async (_e, login) => {
   }
 });
 
-ipcMain.handle('twitch:stream-playlist', async (_e, login, url) => {
+ipcMain.handle('twitch:stream-playlist', async (_e, login, url, opts) => {
+  const prefetch = !!opts?.prefetch;
   login = String(login).toLowerCase();
   if (!/^https:\/\/[\w.-]+\.(ttvnw\.net|twitch\.tv|cloudfront\.net|live-video\.net)\//.test(url)) return { error: 'blocked url' };
   const state = stateFor(login);
@@ -287,12 +314,12 @@ ipcMain.handle('twitch:stream-playlist', async (_e, login, url) => {
       rememberSegments(state, r.text);
       // Keep the backups fresh for the next ad break.
       if (BACKUP_PLAYER_TYPES.some((t) => Date.now() - (state.backups.get(t)?.at || 0) > 4 * 60 * 1000)) prewarmBackups(login, state);
-      const text = splice(lvl, r.text, 'main');
+      const text = splice(lvl, r.text, 'main', prefetch);
       return adEnded ? { text, adEnded: true } : { text };
     }
     state.inAd = true;
     const backup = await backupMediaPlaylist(login, state, url);
-    if (backup) { rememberSegments(state, backup.text); return { text: splice(lvl, backup.text, 'backup:' + backup.type), ad: 'swapped' }; }
+    if (backup) { rememberSegments(state, backup.text); return { text: splice(lvl, backup.text, 'backup:' + backup.type, prefetch), ad: 'swapped' }; }
     // No backup without ads: drop the ad segments (the picture waits).
     const text = splice(lvl, r.text, 'main');
     return { text, ad: 'stripped' };
