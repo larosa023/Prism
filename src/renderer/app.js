@@ -400,7 +400,12 @@
       // Rewind / go live / clip
       if (Number(S.rewindSeconds) > 0 && s.platform !== 'vod') {
         extra.append(h('button', { class: 'tile-btn', title: 'Rewind 10s (Shift: 30s) · ←', text: '⟲',
-          onclick: (e) => { player.seekBy(e.shiftKey ? -30 : -10); paintBehind(t); } }));
+          onclick: (e) => {
+            const before = player.behind();
+            player.seekBy(e.shiftKey ? -30 : -10);
+            paintBehind(t);
+            if (player.behind() - before < 1) toast('Nothing to rewind yet: Prism keeps the last ' + (S.rewindSeconds || 60) + ' seconds once a stream has played that long.');
+          } }));
       }
       if (s.platform === 'twitch') extra.append(h('button', { class: 'tile-btn', title: `Save the last ${S.clipSeconds || 60}s as a clip · K`, text: '✂', onclick: () => saveClip(s) }));
       t.behindEl = h('button', { class: 'tile-behind', hidden: true, title: 'Jump back to live · L', onclick: () => { player.goLive(); paintBehind(t); } });
@@ -442,7 +447,14 @@
       extra,
       muteBtn,
       h('button', { class: 'tile-btn', title: 'More', text: '⋯', onclick: (e) => openTileMenu(e, key) }),
-      h('button', { class: 'tile-btn', title: 'Make main (Focus layout)', text: '⤢', onclick: () => { focusKey = key; if (S.layout !== 'focus') setLayout('focus'); else layout(); } }),
+      // Makes this the big one; on the one that's already big, full screen.
+      h('button', { class: 'tile-btn tile-expand', title: 'Make main (Focus layout)', text: '⤢', onmouseenter: (e) => {
+        e.currentTarget.title = S.layout === 'focus' && focusKey === key ? 'Full screen (double-click the video too)' : 'Make main (Focus layout)';
+      }, onclick: () => {
+        if (S.layout === 'focus' && focusKey === key) { document.fullscreenElement ? document.exitFullscreen() : t.el.requestFullscreen().catch(() => {}); return; }
+        focusKey = key;
+        if (S.layout !== 'focus') setLayout('focus'); else layout();
+      } }),
       h('button', { class: 'tile-btn', title: 'Show this chat', text: 'Chat', onclick: () => setChat(key) }),
       h('button', { class: 'tile-btn', title: 'Reload', text: '⟳', onclick: () => t.reload() }),
       h('button', { class: 'tile-btn', title: 'Remove', text: '✕', onclick: () => removeStream(key) })

@@ -468,13 +468,13 @@
     applyQuality() {
       const hls = this.hls;
       if (!hls || !hls.levels.length) return;
-      if (this.quality === 'auto') {
-        hls.capLevelToPlayerSize = true;
-        hls.currentLevel = -1;
-        return;
-      }
-      hls.capLevelToPlayerSize = false;
-      hls.currentLevel = this.wantedLevel();
+      // Once video is playing, switch at the next piece of video rather than
+      // throwing away what's loaded: no pause, and the video kept for rewind
+      // stays (a hard switch emptied it, so rewind barely went back).
+      const playing = this.video.buffered.length > 0;
+      const want = this.quality === 'auto' ? -1 : this.wantedLevel();
+      hls.capLevelToPlayerSize = this.quality === 'auto';
+      if (playing) hls.nextLevel = want; else hls.currentLevel = want;
     }
 
     // ---- Rewind ----------------------------------------------------------

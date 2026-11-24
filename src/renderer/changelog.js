@@ -1,6 +1,16 @@
 // What's new in each version, newest first. Shown in the "What's new" window.
 window.PRISM_CHANGELOG = [
   {
+    version: '0.18.7',
+    date: 'Nov 24, 2026',
+    items: [
+      'Stream buttons, checked one by one on Twitch and Kick streams: volume, sound, quality, rewind, Go live, the ⋯ menu (pop out, site player and back), make main, chat, reload and remove.',
+      'Changing quality no longer empties the stream\'s saved video, so rewind right after a quality change goes back the full 10 seconds (it only went back a few). The switch is also smoother: it happens at the next piece of video, without a pause.',
+      'The ⤢ button on the stream that\'s already main now goes full screen (click again to leave). It used to do nothing there.',
+      'Rewind tells you when there\'s nothing to rewind yet (just after a stream starts) instead of doing nothing.'
+    ]
+  },
+  {
     version: '0.18.6',
     date: 'Nov 22, 2026',
     items: [
